@@ -1,88 +1,109 @@
 #!/bin/bash
-# Triggered by udev when a USB drive is inserted.
-# Scans the USB drive for media files, copies them to the fleet media dir,
-# updates the local manifest, and tells the local daemon to restart playback.
+# Triggered by udev when a USB filesystem appears.
+# Mounts the stick, verifies it has fleet media, copies into a versioned release dir,
+# atomically swaps the `current` symlink, pins the device, signals fleet-player.
+# Idempotent: rerun = swap content, no leftover state.
 
-LOG_FILE="/var/log/fleet-usb-sync.log"
-exec >> "$LOG_FILE" 2>&1
+set -euo pipefail
 
-echo "[$(date)] USB Drive inserted/triggered."
+DEVICE="${1:-}"
+[[ -z "$DEVICE" ]] && { echo "usage: $0 /dev/sdX1" >&2; exit 2; }
 
-# Allow some time for mount to stabilize
-sleep 3
+MEDIA_BASE="/opt/fleet-media"
+STATE_FILE="$MEDIA_BASE/state.json"
+PLAYLIST_FILE="$MEDIA_BASE/playlist.current"
+RESTART_TRIGGER="$MEDIA_BASE/.restart-player"
+LOG="/var/log/fleet-usb-sync.log"
 
-# Find where the drive is mounted
-# Depending on OS config, usbmount or udisks might mount it under /media or /run/media
-MOUNT_PATH=$(findmnt -n -o TARGET -S "$1" 2>/dev/null || echo "")
+log() { echo "[$(date -Is)] $*" | tee -a "$LOG"; }
 
-if [ -z "$MOUNT_PATH" ]; then
-    echo "Could not determine mount point for $1. Looking in /media..."
-    # Fallback heuristic
-    MOUNT_PATH=$(ls -d /media/*/* 2>/dev/null | head -n 1)
+# Mount the stick
+MNT=$(mktemp -d /tmp/fleet-usb.XXXX)
+trap "umount -l '$MNT' 2>/dev/null || true; rmdir '$MNT' 2>/dev/null || true" EXIT
+
+if ! mount -o ro "$DEVICE" "$MNT" 2>>"$LOG"; then
+    log "ERROR: mount $DEVICE failed"; exit 3
 fi
 
-if [ -z "$MOUNT_PATH" ] || [ ! -d "$MOUNT_PATH" ]; then
-    echo "No valid mount point found. Exiting."
-    exit 1
+# Find a fleet/ directory or fall back to root if it has media files
+SRC=""
+if [[ -d "$MNT/fleet" ]]; then
+    SRC="$MNT/fleet"
+elif compgen -G "$MNT/*.mp4" > /dev/null \
+  || compgen -G "$MNT/*.mkv" > /dev/null \
+  || compgen -G "$MNT/*.mov" > /dev/null \
+  || compgen -G "$MNT/*.webm" > /dev/null \
+  || compgen -G "$MNT/*.mp3" > /dev/null \
+  || compgen -G "$MNT/*.wav" > /dev/null \
+  || compgen -G "$MNT/*.png" > /dev/null \
+  || compgen -G "$MNT/*.jpg" > /dev/null \
+  || compgen -G "$MNT/*.jpeg" > /dev/null; then
+    SRC="$MNT"
 fi
 
-echo "Scanning mount point: $MOUNT_PATH"
-
-MEDIA_DIR="/opt/fleet-media"
-mkdir -p "$MEDIA_DIR"
-
-# File extensions to look for
-EXTENSIONS="mp4|mkv|mov|avi|webm|m4v|mp3|wav|flac|aac|m4a|ogg|jpg|jpeg|png|webp|gif"
-
-# Find media files on the USB stick (case insensitive)
-# Use find to list files matching extensions
-FOUND_FILES=$(find "$MOUNT_PATH" -type f -regextype posix-extended -iregex ".*\.($EXTENSIONS)$")
-
-if [ -z "$FOUND_FILES" ]; then
-    echo "No media files found on USB. Exiting."
+if [[ -z "$SRC" ]]; then
+    log "No fleet/ dir or media files on $DEVICE — ignoring (not a fleet stick)"
     exit 0
 fi
 
-echo "Found media files:"
-echo "$FOUND_FILES"
+log "USB media found at $SRC"
 
-# Clean out old media (copy mode REPLACE behavior)
-echo "Wiping old media from $MEDIA_DIR..."
-rm -f "$MEDIA_DIR"/*
+# Hash the content for the release ID (just names + sizes; cheap, stable)
+HASH=$(find "$SRC" -maxdepth 1 -type f -printf '%f %s\n' | sort | sha256sum | cut -c1-12)
+RELEASE_DIR="$MEDIA_BASE/releases/usb-$HASH"
 
-# Copy new files over
-echo "Copying files to $MEDIA_DIR..."
-while IFS= read -r file; do
-    cp -v "$file" "$MEDIA_DIR/"
-done <<< "$FOUND_FILES"
+if [[ -d "$RELEASE_DIR" ]]; then
+    log "Release usb-$HASH already exists — re-swapping to it"
+else
+    log "Creating release usb-$HASH"
+    rm -rf "$RELEASE_DIR.tmp"
+    mkdir -p "$RELEASE_DIR.tmp"
+    cp -a "$SRC"/. "$RELEASE_DIR.tmp/"
+    mv "$RELEASE_DIR.tmp" "$RELEASE_DIR"
+fi
 
-echo "Copy complete. Rebuilding local manifest..."
+# Atomic symlink swap (-T treats target as plain file, not dir-into)
+ln -sfn "$RELEASE_DIR" "$MEDIA_BASE/current.new"
+mv -T "$MEDIA_BASE/current.new" "$MEDIA_BASE/current"
 
-# Generate a synthetic offline manifest so the client doesn't delete the files next time it polls
-MANIFEST_FILE="/var/lib/fleet-client/manifest.json"
-mkdir -p /var/lib/fleet-client
+# Update state.json (preserve other fields, set pinned + current_version)
+python3 - <<PYEOF
+import json, time
+from pathlib import Path
+sf = Path("$STATE_FILE")
+state = {}
+if sf.exists():
+    try:
+        state = json.loads(sf.read_text())
+    except Exception:
+        state = {}
+state["current_version"] = "usb-$HASH"
+state["pinned"] = True
+state["pinned_source"] = "usb"
+state["pinned_at"] = time.time()
+sf.parent.mkdir(parents=True, exist_ok=True)
+sf.write_text(json.dumps(state, indent=2))
+PYEOF
 
-echo '{"version": "usb-offline-sync", "files": [' > "$MANIFEST_FILE"
-FIRST=1
-for f in "$MEDIA_DIR"/*; do
-    if [ "$FIRST" -eq 1 ]; then
-        FIRST=0
-    else
-        echo ',' >> "$MANIFEST_FILE"
-    fi
-    FILENAME=$(basename "$f")
-    # Python one-liner to get sha256 checksum safely
-    CHECKSUM=$(python3 -c "import hashlib; print(hashlib.sha256(open('$f','rb').read()).hexdigest())")
-    SIZE=$(stat -c%s "$f")
-    
-    echo "  {\"id\": \"usb-$CHECKSUM\", \"filename\": \"$FILENAME\", \"checksum\": \"$CHECKSUM\", \"size\": $SIZE}" >> "$MANIFEST_FILE"
+# Write playlist for fleet-player
+python3 - <<PYEOF
+from pathlib import Path
+cur = Path("$MEDIA_BASE/current")
+out = Path("$PLAYLIST_FILE")
+files = sorted(p for p in cur.iterdir() if p.is_file() and not p.name.startswith("."))
+out.write_text("\n".join(str(p) for p in files) + "\n")
+PYEOF
+
+# Signal fleet-player
+touch "$RESTART_TRIGGER"
+
+# Cleanup: keep only the 3 newest releases, never delete the one currently in use
+CURRENT_LINK=$(readlink "$MEDIA_BASE/current")
+find "$MEDIA_BASE/releases" -maxdepth 1 -mindepth 1 -type d \
+    -not -path "$CURRENT_LINK" -printf "%T@ %p\n" | sort -n | head -n -2 \
+    | cut -d' ' -f2- | while read -r d; do
+    log "Cleaning old release: $d"
+    rm -rf "$d"
 done
-echo ']}' >> "$MANIFEST_FILE"
 
-echo "Manifest rebuilt."
-
-# Restart the fleet client service to pick up the new local manifest and restart mpv
-echo "Restarting fleet-client service..."
-systemctl restart fleet-client.service
-
-echo "[$(date)] USB Sync complete!"
+log "USB sync complete: release usb-$HASH, pinned"
