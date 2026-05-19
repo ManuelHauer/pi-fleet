@@ -2,7 +2,7 @@
 
 A centralized fleet management and media orchestration platform designed to remotely manage, monitor, and deploy headless video playback across up to 150 Raspberry Pi (3/4/5) players for large-scale exhibitions and events.
 
-## 🌟 Key Features
+## ✨ Key Features
 
 - **Centralized Dashboard (Server):** FastAPI backend and web UI to mass-assign media, push updates, and monitor device health (CPU temps, uptime, playback status) in real-time.
 - **Headless Hardware-Accelerated Playback:** Uses `mpv` with `--vo=drm` on Raspberry Pi OS Lite (Bookworm/Trixie) for buttery-smooth looping video without a desktop environment.
