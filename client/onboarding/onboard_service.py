@@ -12,9 +12,12 @@ Flow:
 """
 import logging
 import os
+import shutil
+import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
 
 # Add parent to path for imports
 sys.path.insert(0, os.path.dirname(__file__))
@@ -23,6 +26,8 @@ import wifi_manager
 import ap_manager
 import hdmi_status
 import captive_portal
+
+TAILSCALE_AUTHKEY_FILE = Path("/etc/fleet-client/tailscale-authkey")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -41,6 +46,57 @@ def get_device_id() -> str:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from identity import device_id
     return device_id()
+
+
+def _tailscale_up(authkey: str, hostname: str, timeout_sec: int = 60) -> bool:
+    """Bring up Tailscale. Non-fatal: returns False if it can't join.
+
+    The Pi keeps onboarding-complete state regardless of the result — offline
+    fallback in fleet-client handles a missing mesh. This function only
+    returns True if `tailscale ip -4` confirms a tailnet address.
+    """
+    if not authkey:
+        log.warning("No Tailscale authkey present — skipping mesh join")
+        return False
+    if shutil.which("tailscale") is None:
+        log.error("tailscale binary missing from golden image")
+        return False
+    try:
+        subprocess.run(["sudo", "systemctl", "enable", "--now", "tailscaled"],
+                       check=False, timeout=30)
+        cmd = ["sudo", "tailscale", "up",
+               f"--authkey={authkey}",
+               f"--hostname={hostname}",
+               "--accept-routes=false",
+               "--ssh"]  # Tailscale SSH for ops access
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_sec)
+        if r.returncode != 0:
+            log.error(f"tailscale up failed: {r.stderr.strip()}")
+            return False
+        r2 = subprocess.run(["tailscale", "ip", "-4"],
+                            capture_output=True, text=True, timeout=10)
+        if r2.returncode == 0 and r2.stdout.strip():
+            log.info(f"Tailscale up: {r2.stdout.strip()}")
+            return True
+    except subprocess.TimeoutExpired:
+        log.error("tailscale up timed out")
+    except Exception as e:
+        log.error(f"tailscale up exception: {e}")
+    return False
+
+
+def join_mesh_if_configured(device_id: str) -> bool:
+    """Read the per-SD authkey file (baked at flash time) and try to join.
+
+    Non-fatal in every failure mode. Returns True only on confirmed join.
+    """
+    authkey = ""
+    if TAILSCALE_AUTHKEY_FILE.exists():
+        try:
+            authkey = TAILSCALE_AUTHKEY_FILE.read_text().strip()
+        except Exception as e:
+            log.warning(f"Could not read {TAILSCALE_AUTHKEY_FILE}: {e}")
+    return _tailscale_up(authkey, hostname=device_id)
 
 
 def check_usb_fallback() -> bool:
@@ -88,21 +144,24 @@ def main():
         current = wifi_manager.get_current_ssid()
         if current:
             log.info(f"Already connected to: {current} — skipping onboarding")
+            join_mesh_if_configured(device_id)
             return
         else:
             log.info("Credentials exist but not connected — attempting connection…")
             if wifi_manager.connect(timeout_sec=20):
                 ip = wifi_manager.get_ip()
                 log.info(f"Connected: {wifi_manager.get_current_ssid()} @ {ip}")
+                join_mesh_if_configured(device_id)
                 return
             log.warning("Stored credentials failed — entering setup mode")
-    
+
     # Check USB fallback
     if check_usb_fallback():
         log.info("USB credentials loaded — attempting connection…")
         if wifi_manager.connect(timeout_sec=20):
             ip = wifi_manager.get_ip()
             log.info(f"Connected via USB config: {wifi_manager.get_current_ssid()} @ {ip}")
+            join_mesh_if_configured(device_id)
             return
     
     # No credentials — enter setup mode
@@ -138,9 +197,12 @@ def main():
     
     # Give the portal response time to render
     time.sleep(3)
-    
+
+    # Captive portal joined a real Wi-Fi network → try mesh join
+    join_mesh_if_configured(device_id)
+
     log.info("Onboarding complete — fleet-client will take over")
-    
+
     # Final cleanup: make sure AP is off
     ap_manager.stop_ap()
 
