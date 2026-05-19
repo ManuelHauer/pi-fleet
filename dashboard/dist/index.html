@@ -234,6 +234,7 @@
     <div class="header-right">
       <span class="stat-badge online" id="cntOn">0 online</span>
       <span class="stat-badge offline" id="cntOff">0 offline</span>
+      <span class="stat-badge" id="cntPinned" style="background:#7c4dff;color:white">0 pinned</span>
       <span class="stat-badge" id="cntAll">0 devices</span>
       <button class="btn sm" onclick="refreshAll()">↻</button>
     </div>
@@ -314,10 +315,23 @@ async function loadDevices() {
   const data = await apiFetch('/admin/devices');
   devices = data.devices || [];
   const on = devices.filter(d => d.status === 'online').length;
+  const pinned = devices.filter(d => d.pinned).length;
   document.getElementById('cntOn').textContent = `${on} online`;
   document.getElementById('cntOff').textContent = `${devices.length - on} offline`;
+  document.getElementById('cntPinned').textContent = `${pinned} pinned`;
   document.getElementById('cntAll').textContent = `${devices.length} devices`;
   document.getElementById('navDevCount').textContent = devices.length;
+}
+
+function fmtPinnedAt(v) {
+  if (v === null || v === undefined || v === '') return '—';
+  const s = String(v);
+  // Numeric (epoch seconds) vs ISO
+  const epoch = /^\d+(\.\d+)?$/.test(s) ? Number(s) * 1000 : Date.parse(s);
+  if (!epoch || isNaN(epoch)) return esc(s);
+  const d = new Date(epoch);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 async function loadMedia() {
   const [mData, fData] = await Promise.all([apiFetch('/media/list'), apiFetch('/folders')]);
@@ -377,7 +391,7 @@ function renderDeviceList() {
         onclick="selectDevice('${d.id}')">
         <div class="dot ${d.status||'unknown'}"></div>
         <div class="item-info">
-          <div class="item-title">${esc(d.label || d.hostname || d.id)}</div>
+          <div class="item-title">${d.pinned ? '🔌 ' : ''}${esc(d.label || d.hostname || d.id)}</div>
           <div class="item-sub">${esc(d.ip_address||'—')} · ${esc(d.hw_model||'')}</div>
         </div>
       </div>`;
@@ -525,15 +539,25 @@ function showDeviceDetail(data, assignments) {
   panel.innerHTML = `
     <div class="detail-header">
       <h2 style="display:flex;align-items:center;gap:8px">
-        <span id="deviceLabel">${esc(d.label || d.hostname || d.id)}</span>
+        <span id="deviceLabel">${d.pinned ? '🔌 ' : ''}${esc(d.label || d.hostname || d.id)}</span>
         <button class="btn sm" onclick="renameDevice('${d.id}','${esc(d.label||d.hostname||d.id)}')" title="Rename device" style="font-size:12px;padding:3px 8px">✏️</button>
       </h2>
       <div class="sub">
-        ${esc(d.id)} · ${esc(d.hw_model||'unknown')} · 
+        ${esc(d.id)} · ${esc(d.hw_model||'unknown')} ·
         group: <strong style="cursor:pointer;color:var(--accent2)" onclick="changeGroup('${d.id}','${esc(d.group_name||'default')}')" title="Change group">${esc(d.group_name||'default')} ✏️</strong>
         · registered ${timeAgo(d.registered_at)}
       </div>
     </div>
+    ${d.pinned ? `
+      <div style="margin:12px 0;padding:12px 14px;background:#7c4dff22;border-left:3px solid #7c4dff;border-radius:4px;display:flex;align-items:center;gap:10px;font-size:13px">
+        <span style="font-size:18px">🔌</span>
+        <div style="flex:1">
+          <div><strong>USB Pinned</strong> · ${esc(d.current_manifest_version || 'usb')} <span style="color:var(--text2)">(since ${fmtPinnedAt(d.pinned_at)})</span></div>
+          <div style="color:var(--text2);font-size:11px">Dashboard manifest updates are ignored until released.</div>
+        </div>
+        <button class="btn sm" onclick="unpinDevice('${d.id}')" style="background:#7c4dff;color:white;border-color:#7c4dff">Release</button>
+      </div>
+    ` : ''}
     <div class="detail-grid">
       <div class="stat-card"><div class="label">Status</div><div class="value ${d.status==='online'?'green':'red'}">${d.status||'unknown'}</div></div>
       <div class="stat-card"><div class="label">Last Seen</div><div class="value">${timeAgo(d.last_seen)}</div></div>
@@ -548,7 +572,7 @@ function showDeviceDetail(data, assignments) {
     <div class="section-title">Commands</div>
     <div class="action-bar">
       <button class="btn primary" onclick="sendCmd('${d.id}','update_now')">⬇ Update Now</button>
-      <button class="btn" onclick="sendCmd('${d.id}','vlc_restart')">▶ Restart Player</button>
+      <button class="btn" onclick="sendCmd('${d.id}','player_restart')">▶ Restart Player</button>
       <button class="btn" onclick="sendCmd('${d.id}','health_probe')">🔍 Health Probe</button>
       <button class="btn danger" onclick="sendCmd('${d.id}','reboot')">⟳ Reboot</button>
     </div>
@@ -875,6 +899,18 @@ async function sendCmd(deviceId, command) {
   fd.append('command', command);
   await apiFetch(`/admin/devices/${deviceId}/command`, { method: 'POST', body: fd });
   toast(`Command "${command}" sent ✓`);
+}
+
+async function unpinDevice(deviceId) {
+  if (!confirm('Release USB pin for this device? Dashboard manifest updates will resume on next poll.')) return;
+  try {
+    await apiFetch(`/admin/devices/${deviceId}/unpin`, { method: 'POST' });
+    toast('USB pin released ✓');
+    await loadDevices();
+    selectDevice(deviceId);
+  } catch (e) {
+    toast('Unpin failed: ' + e.message, true);
+  }
 }
 
 // ── Modal helpers ──
