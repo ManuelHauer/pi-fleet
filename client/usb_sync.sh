@@ -97,10 +97,11 @@ PYEOF
 # Signal fleet-player
 touch "$RESTART_TRIGGER"
 
-# Cleanup: keep only the 3 newest releases, never delete the one currently in use
+# Cleanup: keep only the 3 newest releases, never delete the one currently in use.
+# Artists may re-plug an older stick; keeping a small history avoids re-copying.
 CURRENT_LINK=$(readlink "$MEDIA_BASE/current")
 find "$MEDIA_BASE/releases" -maxdepth 1 -mindepth 1 -type d \
-    -not -path "$CURRENT_LINK" -printf "%T@ %p\n" | sort -n | head -n -2 \
+    -not -path "$CURRENT_LINK" -printf "%T@ %p\n" | sort -n | head -n -3 \
     | cut -d' ' -f2- | while read -r d; do
     log "Cleaning old release: $d"
     rm -rf "$d"
