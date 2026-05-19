@@ -1,0 +1,940 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ars Fleet — Media Orchestration Dashboard</title>
+<style>
+  :root {
+    --bg: #0a0a0f; --surface: #141420; --surface2: #1c1c2e;
+    --border: #2a2a3e; --text: #e0e0e8; --text2: #8888a0;
+    --accent: #6c5ce7; --accent2: #a29bfe; --green: #00b894;
+    --red: #ff6b6b; --orange: #fdcb6e; --blue: #74b9ff;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro', 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg); color: var(--text); overflow: hidden; height: 100vh;
+  }
+  .app { display: flex; flex-direction: column; height: 100vh; }
+
+  /* Header */
+  .header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 20px; background: var(--surface); border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .header h1 { font-size: 15px; font-weight: 600; letter-spacing: 0.5px; }
+  .header h1 span { color: var(--accent2); }
+  .header-right { display: flex; gap: 12px; align-items: center; font-size: 12px; color: var(--text2); }
+  .stat-badge { padding: 3px 8px; border-radius: 10px; background: var(--surface2); font-size: 11px; }
+  .stat-badge.online { color: var(--green); }
+  .stat-badge.offline { color: var(--red); }
+
+  /* Main layout: 3-column */
+  .main { display: flex; flex: 1; overflow: hidden; }
+
+  /* Left nav */
+  .nav-panel {
+    width: 200px; min-width: 180px; background: var(--surface);
+    border-right: 1px solid var(--border); display: flex; flex-direction: column;
+  }
+  .nav-section { padding: 12px 0; }
+  .nav-label { font-size: 10px; color: var(--text2); text-transform: uppercase; letter-spacing: 1px; padding: 0 16px; margin-bottom: 6px; }
+  .nav-item {
+    display: flex; align-items: center; gap: 8px; padding: 8px 16px;
+    font-size: 13px; cursor: pointer; transition: background 0.1s;
+  }
+  .nav-item:hover { background: var(--surface2); }
+  .nav-item.active { background: var(--accent)22; color: var(--accent2); border-right: 2px solid var(--accent); }
+  .nav-icon { font-size: 14px; width: 20px; text-align: center; }
+  .nav-count { margin-left: auto; font-size: 10px; color: var(--text2); background: var(--surface2); padding: 1px 6px; border-radius: 8px; }
+
+  /* Middle panel */
+  .list-panel {
+    width: 340px; min-width: 280px; border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; background: var(--bg);
+  }
+  .list-toolbar {
+    display: flex; gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--border);
+    align-items: center; flex-shrink: 0;
+  }
+  .list-toolbar input {
+    flex: 1; padding: 6px 10px; border: 1px solid var(--border); border-radius: 5px;
+    background: var(--surface); color: var(--text); font-size: 12px; outline: none;
+  }
+  .list-toolbar input:focus { border-color: var(--accent); }
+  .list-items { flex: 1; overflow-y: auto; }
+
+  /* Device list items */
+  .list-item {
+    display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+    cursor: pointer; border-bottom: 1px solid var(--border); transition: background 0.1s;
+  }
+  .list-item:hover { background: var(--surface); }
+  .list-item.active { background: var(--accent)18; border-left: 3px solid var(--accent); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .dot.online { background: var(--green); }
+  .dot.offline { background: var(--red); }
+  .dot.unknown { background: var(--text2); }
+  .item-info { flex: 1; min-width: 0; }
+  .item-title { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .item-sub { font-size: 11px; color: var(--text2); margin-top: 1px; }
+  .item-badge { font-size: 10px; color: var(--accent2); background: var(--accent)15; padding: 2px 6px; border-radius: 4px; }
+
+  /* Media list items */
+  .media-row {
+    display: flex; align-items: center; gap: 8px; padding: 8px 14px;
+    cursor: pointer; border-bottom: 1px solid var(--border); font-size: 12px;
+  }
+  .media-row:hover { background: var(--surface); }
+  .media-row.active { background: var(--accent)18; border-left: 3px solid var(--accent); }
+  .media-row .icon { font-size: 16px; flex-shrink: 0; }
+  .media-row .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .media-row .meta { color: var(--text2); font-size: 10px; white-space: nowrap; }
+  .media-row .assigned-count { font-size: 10px; color: var(--green); background: var(--green)18; padding: 1px 5px; border-radius: 4px; }
+
+  /* Folder items */
+  .folder-row {
+    display: flex; align-items: center; gap: 8px; padding: 7px 14px;
+    cursor: pointer; border-bottom: 1px solid var(--border); font-size: 12px;
+    font-weight: 500;
+  }
+  .folder-row:hover { background: var(--surface); }
+  .folder-row.active { background: var(--accent)18; }
+  .folder-row .icon { font-size: 14px; }
+  .folder-back { color: var(--text2); font-weight: 400; }
+
+  /* Right detail panel */
+  .detail-panel { flex: 1; overflow-y: auto; padding: 20px 24px; background: var(--bg); }
+  .detail-empty { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text2); font-size: 13px; }
+
+  .detail-header { margin-bottom: 20px; }
+  .detail-header h2 { font-size: 18px; font-weight: 600; margin-bottom: 3px; }
+  .detail-header .sub { font-size: 12px; color: var(--text2); }
+
+  .detail-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; margin-bottom: 20px; }
+  .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+  .stat-card .label { font-size: 10px; color: var(--text2); text-transform: uppercase; letter-spacing: 0.5px; }
+  .stat-card .value { font-size: 16px; font-weight: 600; margin-top: 3px; }
+  .stat-card .value.green { color: var(--green); }
+  .stat-card .value.red { color: var(--red); }
+  .stat-card .value.orange { color: var(--orange); }
+
+  .section-title { font-size: 12px; font-weight: 600; color: var(--text2); text-transform: uppercase; letter-spacing: 0.5px; margin: 18px 0 8px; }
+
+  .action-bar { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
+  .btn {
+    padding: 7px 14px; border: 1px solid var(--border); border-radius: 5px;
+    background: var(--surface); color: var(--text); font-size: 11px;
+    cursor: pointer; transition: all 0.12s; white-space: nowrap;
+  }
+  .btn:hover { background: var(--surface2); border-color: var(--accent); }
+  .btn.danger { border-color: var(--red); color: var(--red); }
+  .btn.danger:hover { background: var(--red)22; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: white; }
+  .btn.primary:hover { opacity: 0.9; }
+  .btn.sm { padding: 4px 10px; font-size: 10px; }
+  .btn.green { border-color: var(--green); color: var(--green); }
+
+  /* Assignment panel */
+  .assign-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+  .assign-device {
+    display: flex; align-items: center; gap: 8px; padding: 6px 0;
+    border-bottom: 1px solid var(--border); font-size: 12px;
+  }
+  .assign-device:last-child { border-bottom: none; }
+  .assign-device label { flex: 1; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+  .assign-device input[type=checkbox] { accent-color: var(--accent); }
+
+  /* Upload area */
+  .upload-zone {
+    border: 2px dashed var(--border); border-radius: 8px; padding: 24px;
+    text-align: center; color: var(--text2); cursor: pointer; transition: border-color 0.2s;
+    margin-bottom: 16px;
+  }
+  .upload-zone:hover, .upload-zone.drag { border-color: var(--accent); background: var(--accent)08; }
+  .upload-zone input { display: none; }
+
+  /* Tables */
+  .data-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  .data-table th { text-align: left; padding: 7px 8px; color: var(--text2); border-bottom: 1px solid var(--border); font-weight: 500; }
+  .data-table td { padding: 7px 8px; border-bottom: 1px solid var(--border); }
+
+  /* Login */
+  .login-overlay {
+    position: fixed; inset: 0; background: var(--bg); display: flex;
+    align-items: center; justify-content: center; z-index: 100;
+  }
+  .login-box { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 28px; width: 300px; }
+  .login-box h2 { margin-bottom: 16px; font-size: 17px; text-align: center; }
+  .login-box input {
+    width: 100%; padding: 9px 12px; margin-bottom: 10px;
+    border: 1px solid var(--border); border-radius: 6px;
+    background: var(--bg); color: var(--text); font-size: 13px;
+  }
+  .login-box .btn { width: 100%; text-align: center; }
+  .login-error { color: var(--red); font-size: 12px; text-align: center; margin-bottom: 8px; }
+
+  /* Modal */
+  .modal-bg { position: fixed; inset: 0; background: #000a; z-index: 50; display: flex; align-items: center; justify-content: center; }
+  .modal {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 24px; min-width: 360px; max-width: 500px; max-height: 80vh; overflow-y: auto;
+  }
+  .modal h3 { margin-bottom: 12px; font-size: 15px; }
+  .modal .close { position: absolute; top: 12px; right: 16px; cursor: pointer; font-size: 18px; color: var(--text2); }
+
+  /* Group headers in device list */
+  .group-header {
+    display: flex; align-items: center; gap: 8px; padding: 8px 14px;
+    background: var(--surface); border-bottom: 1px solid var(--border);
+    font-size: 11px; font-weight: 600; color: var(--text2); text-transform: uppercase;
+    letter-spacing: 0.5px; cursor: default; transition: background 0.15s;
+  }
+  .group-header .group-icon { font-size: 12px; }
+  .group-header .group-name { flex: 1; }
+  .group-header .group-count { font-size: 10px; background: var(--surface2); padding: 1px 6px; border-radius: 8px; }
+
+  /* Drag & drop states */
+  .drag-over { background: var(--accent)22 !important; border-color: var(--accent) !important; }
+  .list-item[draggable=true] { cursor: grab; }
+  .list-item[draggable=true]:active { cursor: grabbing; opacity: 0.6; }
+  .media-row[draggable=true] { cursor: grab; }
+  .media-row[draggable=true]:active { cursor: grabbing; opacity: 0.6; }
+  .folder-row.drag-over { background: var(--accent)22; }
+
+  /* Toast */
+  .toast {
+    position: fixed; bottom: 16px; right: 16px; padding: 10px 18px;
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 7px; font-size: 12px; z-index: 200;
+    animation: fadeUp 0.25s ease;
+  }
+  .toast.error { border-color: var(--red); }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <!-- Login -->
+  <div class="login-overlay" id="loginOverlay">
+    <div class="login-box">
+      <h2>🎬 Ars Fleet</h2>
+      <div class="login-error" id="loginError" style="display:none"></div>
+      <input type="text" id="loginUser" placeholder="Username" value="admin">
+      <input type="password" id="loginPass" placeholder="Password" onkeydown="if(event.key==='Enter')login()">
+      <button class="btn primary" onclick="login()">Sign In</button>
+    </div>
+  </div>
+
+  <!-- Header -->
+  <div class="header">
+    <h1>🎬 <span>Ars Fleet</span></h1>
+    <div class="header-right">
+      <span class="stat-badge online" id="cntOn">0 online</span>
+      <span class="stat-badge offline" id="cntOff">0 offline</span>
+      <span class="stat-badge" id="cntAll">0 devices</span>
+      <button class="btn sm" onclick="refreshAll()">↻</button>
+    </div>
+  </div>
+
+  <!-- Main 3-column -->
+  <div class="main">
+    <!-- Col 1: Nav -->
+    <div class="nav-panel">
+      <div class="nav-section">
+        <div class="nav-label">Views</div>
+        <div class="nav-item active" data-view="devices" onclick="switchView('devices')">
+          <span class="nav-icon">📱</span> Devices <span class="nav-count" id="navDevCount">0</span>
+        </div>
+        <div class="nav-item" data-view="media" onclick="switchView('media')">
+          <span class="nav-icon">📁</span> Media <span class="nav-count" id="navMediaCount">0</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Col 2: List -->
+    <div class="list-panel">
+      <div class="list-toolbar" id="listToolbar">
+        <input type="text" placeholder="Search…" id="searchInput" oninput="filterList()">
+      </div>
+      <div class="list-items" id="listItems"></div>
+    </div>
+
+    <!-- Col 3: Detail -->
+    <div class="detail-panel" id="detailPanel">
+      <div class="detail-empty" id="emptyState">Select an item to view details</div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal container -->
+<div id="modalContainer"></div>
+
+<script>
+const API = location.origin;
+let token = localStorage.getItem('fleet_token') || '';
+let devices = [];
+let mediaFiles = [];
+let folders = [];
+let currentView = 'devices';
+let selectedId = null;
+let currentFolderId = null; // for media browsing
+
+// ── Auth ──
+async function apiFetch(path, opts = {}) {
+  const headers = { 'Authorization': `Bearer ${token}`, ...(opts.headers || {}) };
+  const res = await fetch(`${API}${path}`, { ...opts, headers });
+  if (res.status === 401) { showLogin(); throw new Error('Unauthorized'); }
+  if (!res.ok) { const e = await res.text(); throw new Error(e); }
+  return res.json();
+}
+function showLogin() { document.getElementById('loginOverlay').style.display = 'flex'; }
+function hideLogin() { document.getElementById('loginOverlay').style.display = 'none'; }
+async function login() {
+  const user = document.getElementById('loginUser').value;
+  const pass = document.getElementById('loginPass').value;
+  try {
+    const res = await fetch(`${API}/auth/token`, {
+      method: 'POST', headers: { 'Authorization': 'Basic ' + btoa(`${user}:${pass}`) },
+    });
+    if (!res.ok) throw new Error('Bad credentials');
+    const data = await res.json();
+    token = data.token; localStorage.setItem('fleet_token', token);
+    hideLogin(); refreshAll();
+  } catch {
+    const el = document.getElementById('loginError');
+    el.style.display = 'block'; el.textContent = 'Login failed';
+  }
+}
+
+// ── Data loading ──
+async function loadDevices() {
+  const data = await apiFetch('/admin/devices');
+  devices = data.devices || [];
+  const on = devices.filter(d => d.status === 'online').length;
+  document.getElementById('cntOn').textContent = `${on} online`;
+  document.getElementById('cntOff').textContent = `${devices.length - on} offline`;
+  document.getElementById('cntAll').textContent = `${devices.length} devices`;
+  document.getElementById('navDevCount').textContent = devices.length;
+}
+async function loadMedia() {
+  const [mData, fData] = await Promise.all([apiFetch('/media/list'), apiFetch('/folders')]);
+  mediaFiles = mData.files || [];
+  folders = fData.folders || [];
+  document.getElementById('navMediaCount').textContent = mediaFiles.length;
+}
+
+// ── View switching ──
+function switchView(view) {
+  currentView = view; selectedId = null;
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.view === view));
+  renderList();
+  document.getElementById('detailPanel').innerHTML = '<div class="detail-empty">Select an item to view details</div>';
+}
+
+// ── List rendering ──
+function renderList() {
+  if (currentView === 'devices') renderDeviceList();
+  else renderMediaList();
+}
+
+function renderDeviceList() {
+  const q = document.getElementById('searchInput').value.toLowerCase();
+  const filtered = devices.filter(d =>
+    (d.label||'').toLowerCase().includes(q) || (d.hostname||'').toLowerCase().includes(q) ||
+    (d.id||'').toLowerCase().includes(q) || (d.group_name||'').toLowerCase().includes(q)
+  );
+  document.getElementById('listToolbar').innerHTML = `
+    <input type="text" placeholder="Search devices…" id="searchInput" oninput="filterList()" value="${esc(q)}">
+    <button class="btn sm" onclick="addGroupPrompt()">+ Group</button>
+  `;
+
+  // Group devices by group_name
+  const groups = {};
+  filtered.forEach(d => {
+    const g = d.group_name || 'default';
+    if (!groups[g]) groups[g] = [];
+    groups[g].push(d);
+  });
+
+  let html = '';
+  for (const [groupName, groupDevices] of Object.entries(groups).sort()) {
+    html += `<div class="group-header"
+      ondragover="event.preventDefault();this.classList.add('drag-over')"
+      ondragleave="this.classList.remove('drag-over')"
+      ondrop="event.preventDefault();this.classList.remove('drag-over');dropDeviceOnGroup(event,'${esc(groupName)}')">
+      <span class="group-icon">📂</span>
+      <span class="group-name">${esc(groupName)}</span>
+      <span class="group-count">${groupDevices.length}</span>
+      <button class="btn sm" onclick="event.stopPropagation();renameGroupPrompt('${esc(groupName)}')" style="margin-left:auto;font-size:10px;padding:2px 6px" title="Rename group">✏️</button>
+    </div>`;
+    for (const d of groupDevices) {
+      html += `<div class="list-item ${selectedId === d.id ? 'active' : ''}"
+        draggable="true"
+        ondragstart="event.dataTransfer.setData('device_id','${d.id}');event.dataTransfer.effectAllowed='move'"
+        onclick="selectDevice('${d.id}')">
+        <div class="dot ${d.status||'unknown'}"></div>
+        <div class="item-info">
+          <div class="item-title">${esc(d.label || d.hostname || d.id)}</div>
+          <div class="item-sub">${esc(d.ip_address||'—')} · ${esc(d.hw_model||'')}</div>
+        </div>
+      </div>`;
+    }
+  }
+  document.getElementById('listItems').innerHTML = html || '<div style="padding:20px;text-align:center;color:var(--text2);font-size:12px">No devices found</div>';
+}
+
+async function dropDeviceOnGroup(event, groupName) {
+  const deviceId = event.dataTransfer.getData('device_id');
+  if (!deviceId) return;
+  const fd = new FormData();
+  fd.append('group_name', groupName);
+  await apiFetch(`/admin/devices/${deviceId}`, { method: 'PUT', body: fd });
+  toast(`Moved to ${groupName} ✓`);
+  await loadDevices(); renderDeviceList();
+  if (selectedId === deviceId) selectDevice(deviceId);
+}
+
+function addGroupPrompt() {
+  const name = prompt('New group name:');
+  if (!name) return;
+  // Groups are implicit — just rename a device into a new group to create it
+  toast('Group "' + name + '" will appear when you drag a device into it. Drag a device onto the new group header.', false);
+  // Add a placeholder group header for drop target
+  const list = document.getElementById('listItems');
+  const ph = document.createElement('div');
+  ph.className = 'group-header';
+  ph.innerHTML = `<span class="group-icon">📂</span><span class="group-name">${esc(name)}</span><span class="group-count">0</span>`;
+  ph.ondragover = e => { e.preventDefault(); ph.classList.add('drag-over'); };
+  ph.ondragleave = () => ph.classList.remove('drag-over');
+  ph.ondrop = e => { e.preventDefault(); ph.classList.remove('drag-over'); dropDeviceOnGroup(e, name); };
+  list.prepend(ph);
+}
+
+async function renameGroupPrompt(oldName) {
+  const newName = prompt('Rename group:', oldName);
+  if (!newName || newName === oldName) return;
+  // Rename all devices in this group
+  const inGroup = devices.filter(d => (d.group_name||'default') === oldName);
+  for (const d of inGroup) {
+    const fd = new FormData();
+    fd.append('group_name', newName);
+    await apiFetch(`/admin/devices/${d.id}`, { method: 'PUT', body: fd });
+  }
+  toast(`Group renamed: ${oldName} → ${newName} ✓`);
+  await loadDevices(); renderDeviceList();
+}
+
+function renderMediaList() {
+  const q = document.getElementById('searchInput')?.value?.toLowerCase() || '';
+  // Files in current folder
+  const filesHere = mediaFiles.filter(f => {
+    const fid = f.folder_id || null;
+    if (fid !== currentFolderId) return false;
+    if (q) return (f.original_name||f.filename||'').toLowerCase().includes(q);
+    return true;
+  });
+  // Subfolders of current folder
+  const subfolders = folders.filter(f => (f.parent_id || null) === currentFolderId);
+
+  let toolbar = `<input type="text" placeholder="Search media…" id="searchInput" oninput="filterList()" value="${esc(q)}">`;
+  toolbar += `<button class="btn sm primary" onclick="showUploadModal()">⬆ Upload</button>`;
+  toolbar += `<button class="btn sm" onclick="showNewFolderModal()">+ Folder</button>`;
+  document.getElementById('listToolbar').innerHTML = toolbar;
+
+  let html = '';
+  // Breadcrumb / back button
+  if (currentFolderId) {
+    const folder = folders.find(f => f.id === currentFolderId);
+    const parentId = folder ? folder.parent_id : null;
+    html += `<div class="folder-row folder-back" onclick="navigateFolder(${parentId ? `'${parentId}'` : 'null'})"
+      ondragover="event.preventDefault();this.classList.add('drag-over')"
+      ondragleave="this.classList.remove('drag-over')"
+      ondrop="event.preventDefault();this.classList.remove('drag-over');dropFileOnFolder(event,${parentId ? `'${parentId}'` : 'null'})">
+      <span class="icon">⬅</span> <span>${esc(folder ? folder.path : '/')}</span>
+    </div>`;
+  }
+  // Subfolders (drop targets for files)
+  for (const sf of subfolders) {
+    html += `<div class="folder-row" ondblclick="navigateFolder('${sf.id}')" onclick="selectFolder('${sf.id}')"
+      ondragover="event.preventDefault();this.classList.add('drag-over')"
+      ondragleave="this.classList.remove('drag-over')"
+      ondrop="event.preventDefault();this.classList.remove('drag-over');dropFileOnFolder(event,'${sf.id}')">
+      <span class="icon">📂</span> <span class="name">${esc(sf.name)}</span>
+      <span class="meta">${mediaFiles.filter(f=>f.folder_id===sf.id).length} files</span>
+    </div>`;
+  }
+  // Files (draggable)
+  for (const f of filesHere) {
+    const icon = mediaIcon(f);
+    html += `<div class="media-row ${selectedId===f.id?'active':''}" onclick="selectMedia('${f.id}')"
+      draggable="true"
+      ondragstart="event.dataTransfer.setData('media_id','${f.id}');event.dataTransfer.effectAllowed='move'">
+      <span class="icon">${icon}</span>
+      <span class="name">${esc(f.original_name || f.filename)}</span>
+      <span class="meta">${fmtBytes(f.size_bytes)}</span>
+    </div>`;
+  }
+  if (!subfolders.length && !filesHere.length) {
+    html += '<div style="padding:30px;text-align:center;color:var(--text2);font-size:12px">Empty folder</div>';
+  }
+  document.getElementById('listItems').innerHTML = html;
+}
+
+async function dropFileOnFolder(event, folderId) {
+  const mediaId = event.dataTransfer.getData('media_id');
+  if (!mediaId) return;
+  const fd = new FormData();
+  if (folderId) fd.append('folder_id', folderId);
+  await apiFetch(`/media/${mediaId}/move`, { method: 'POST', body: fd });
+  const f = mediaFiles.find(m => m.id === mediaId);
+  const folderName = folderId ? (folders.find(x => x.id === folderId)?.name || folderId) : 'root';
+  toast(`Moved ${f ? f.original_name : 'file'} → ${folderName} ✓`);
+  await loadMedia(); renderMediaList();
+}
+
+function navigateFolder(folderId) { currentFolderId = folderId; selectedId = null; renderMediaList(); }
+function selectFolder(folderId) {
+  selectedId = folderId;
+  renderMediaList();
+  showFolderDetail(folderId);
+}
+function filterList() { renderList(); }
+
+// ── Device detail ──
+async function selectDevice(id) {
+  selectedId = id;
+  renderDeviceList();
+  try {
+    const [devData, assignData] = await Promise.all([
+      apiFetch(`/admin/devices/${id}`),
+      apiFetch(`/admin/devices/${id}/assignments`)
+    ]);
+    showDeviceDetail(devData, assignData.assignments || []);
+  } catch (e) { toast('Error loading device: ' + e.message, true); }
+}
+
+function showDeviceDetail(data, assignments) {
+  const d = data.device;
+  const hb = data.recent_heartbeats || [];
+  const lastHb = hb[0] || {};
+  const panel = document.getElementById('detailPanel');
+
+  panel.innerHTML = `
+    <div class="detail-header">
+      <h2 style="display:flex;align-items:center;gap:8px">
+        <span id="deviceLabel">${esc(d.label || d.hostname || d.id)}</span>
+        <button class="btn sm" onclick="renameDevice('${d.id}','${esc(d.label||d.hostname||d.id)}')" title="Rename device" style="font-size:12px;padding:3px 8px">✏️</button>
+      </h2>
+      <div class="sub">
+        ${esc(d.id)} · ${esc(d.hw_model||'unknown')} · 
+        group: <strong style="cursor:pointer;color:var(--accent2)" onclick="changeGroup('${d.id}','${esc(d.group_name||'default')}')" title="Change group">${esc(d.group_name||'default')} ✏️</strong>
+        · registered ${timeAgo(d.registered_at)}
+      </div>
+    </div>
+    <div class="detail-grid">
+      <div class="stat-card"><div class="label">Status</div><div class="value ${d.status==='online'?'green':'red'}">${d.status||'unknown'}</div></div>
+      <div class="stat-card"><div class="label">Last Seen</div><div class="value">${timeAgo(d.last_seen)}</div></div>
+      <div class="stat-card"><div class="label">CPU Temp</div><div class="value ${(lastHb.cpu_temp||0)>70?'orange':''}">${lastHb.cpu_temp?lastHb.cpu_temp.toFixed(1)+'°C':'—'}</div></div>
+      <div class="stat-card"><div class="label">Disk Free</div><div class="value">${lastHb.disk_free_mb?(lastHb.disk_free_mb/1024).toFixed(1)+' GB':'—'}</div></div>
+      <div class="stat-card"><div class="label">Player</div><div class="value ${lastHb.vlc_status==='running'?'green':'red'}">${lastHb.vlc_status||'—'}</div></div>
+      <div class="stat-card"><div class="label">Uptime</div><div class="value">${lastHb.uptime_seconds?fmtUptime(lastHb.uptime_seconds):'—'}</div></div>
+      <div class="stat-card"><div class="label">IP</div><div class="value" style="font-size:13px">${esc(d.ip_address||'—')}</div></div>
+      <div class="stat-card"><div class="label">Assigned Files</div><div class="value ${assignments.length?'green':''}">${assignments.length}</div></div>
+    </div>
+
+    <div class="section-title">Commands</div>
+    <div class="action-bar">
+      <button class="btn primary" onclick="sendCmd('${d.id}','update_now')">⬇ Update Now</button>
+      <button class="btn" onclick="sendCmd('${d.id}','vlc_restart')">▶ Restart Player</button>
+      <button class="btn" onclick="sendCmd('${d.id}','health_probe')">🔍 Health Probe</button>
+      <button class="btn danger" onclick="sendCmd('${d.id}','reboot')">⟳ Reboot</button>
+    </div>
+
+    <div class="section-title">Assigned Media (${assignments.length} files)</div>
+    <div class="assign-panel">
+      ${assignments.length ? assignments.map(a => `
+        <div class="assign-device">
+          <span>${mediaIcon(a)}</span>
+          <span style="flex:1">${esc(a.original_name||a.filename)}</span>
+          <span style="color:var(--text2);font-size:10px">${fmtBytes(a.size_bytes)}</span>
+          <button class="btn sm danger" onclick="unassignFromDevice('${a.id}','${d.id}')">✕</button>
+        </div>
+      `).join('') : '<div style="color:var(--text2);font-size:12px;padding:8px">No media assigned yet. Go to Media → select file → Assign.</div>'}
+    </div>
+
+    <div class="section-title">Recent Heartbeats</div>
+    <table class="data-table">
+      <thead><tr><th>Time</th><th>Player</th><th>Temp</th><th>Disk</th></tr></thead>
+      <tbody>${hb.slice(0,8).map(h => `<tr>
+        <td>${timeAgo(h.timestamp)}</td><td>${h.vlc_status||'—'}</td>
+        <td>${h.cpu_temp?h.cpu_temp.toFixed(1)+'°':'—'}</td>
+        <td>${h.disk_free_mb?(h.disk_free_mb/1024).toFixed(1)+'G':'—'}</td>
+      </tr>`).join('')}</tbody>
+    </table>
+  `;
+}
+
+// ── Media detail ──
+async function selectMedia(id) {
+  selectedId = id;
+  renderMediaList();
+  try {
+    const assignData = await apiFetch(`/media/${id}/assignments`);
+    showMediaDetail(id, assignData.assignments || []);
+  } catch (e) { toast('Error: ' + e.message, true); }
+}
+
+function showMediaDetail(fileId, assignments) {
+  const f = mediaFiles.find(m => m.id === fileId);
+  if (!f) return;
+  const panel = document.getElementById('detailPanel');
+  const assignedIds = new Set(assignments.map(a => a.id));
+
+  panel.innerHTML = `
+    <div class="detail-header">
+      <h2>${mediaIcon(f)} ${esc(f.original_name || f.filename)}</h2>
+      <div class="sub">${fmtBytes(f.size_bytes)} · ${esc(f.content_type||'')} · uploaded ${timeAgo(f.uploaded_at)}</div>
+    </div>
+
+    <div class="detail-grid">
+      <div class="stat-card"><div class="label">File ID</div><div class="value" style="font-size:13px;font-family:monospace">${f.id}</div></div>
+      <div class="stat-card"><div class="label">Checksum</div><div class="value" style="font-size:10px;font-family:monospace">${(f.checksum_sha256||'').substring(0,16)}…</div></div>
+      <div class="stat-card"><div class="label">Assigned To</div><div class="value ${assignments.length?'green':''}">${assignments.length} device${assignments.length!==1?'s':''}</div></div>
+    </div>
+
+    <div class="action-bar">
+      <button class="btn primary" onclick="showAssignModal('${f.id}')">📱 Assign to Devices</button>
+      <button class="btn" onclick="showMoveModal('${f.id}')">📂 Move to Folder</button>
+      <button class="btn danger" onclick="deleteMedia('${f.id}')">🗑 Delete</button>
+    </div>
+
+    <div class="section-title">Assigned Devices</div>
+    <div class="assign-panel">
+      ${assignments.length ? assignments.map(a => `
+        <div class="assign-device">
+          <div class="dot ${a.status||'unknown'}"></div>
+          <label>${esc(a.label||a.hostname||a.id)}</label>
+          <span class="item-badge">${esc(a.group_name||'default')}</span>
+          <button class="btn sm danger" onclick="unassignMedia('${f.id}','${a.id}')">✕</button>
+        </div>
+      `).join('') : '<div style="color:var(--text2);font-size:12px;padding:8px">Not assigned to any device</div>'}
+    </div>
+  `;
+}
+
+// ── Folder detail ──
+function showFolderDetail(folderId) {
+  const f = folders.find(x => x.id === folderId);
+  if (!f) return;
+  const filesInFolder = mediaFiles.filter(m => m.folder_id === folderId);
+  const panel = document.getElementById('detailPanel');
+  panel.innerHTML = `
+    <div class="detail-header">
+      <h2>📂 ${esc(f.name)}</h2>
+      <div class="sub">${esc(f.path)} · ${filesInFolder.length} files</div>
+    </div>
+    <div class="action-bar">
+      <button class="btn" onclick="renameFolderPrompt('${f.id}','${esc(f.name)}')">✏ Rename</button>
+      <button class="btn danger" onclick="deleteFolder('${f.id}')">🗑 Delete Folder</button>
+    </div>
+    <div class="section-title">Files in this folder</div>
+    ${filesInFolder.map(m => `
+      <div class="media-row" onclick="selectMedia('${m.id}')">
+        <span class="icon">${mediaIcon(m)}</span>
+        <span class="name">${esc(m.original_name||m.filename)}</span>
+        <span class="meta">${fmtBytes(m.size_bytes)}</span>
+      </div>
+    `).join('') || '<div style="color:var(--text2);font-size:12px;padding:12px">Empty</div>'}
+  `;
+}
+
+// ── Assignment modal ──
+function showAssignModal(mediaId) {
+  apiFetch(`/media/${mediaId}/assignments`).then(data => {
+    const assigned = new Set((data.assignments||[]).map(a => a.id));
+    const html = `
+      <div class="modal-bg" onclick="if(event.target===this)closeModal()">
+        <div class="modal">
+          <h3>📱 Assign to Devices</h3>
+          <div style="margin-bottom:12px;font-size:12px;color:var(--text2)">Select devices that should receive this file:</div>
+          <div style="max-height:50vh;overflow-y:auto">
+            ${devices.map(d => `
+              <div class="assign-device">
+                <label>
+                  <input type="checkbox" class="assign-check" value="${d.id}" ${assigned.has(d.id)?'checked':''}>
+                  <div class="dot ${d.status||'unknown'}" style="display:inline-block;margin-right:4px"></div>
+                  ${esc(d.label||d.hostname||d.id)}
+                </label>
+                <span class="item-badge">${esc(d.group_name||'default')}</span>
+              </div>
+            `).join('')}
+          </div>
+          <div style="margin-top:16px;display:flex;gap:8px;justify-content:flex-end">
+            <button class="btn" onclick="closeModal()">Cancel</button>
+            <button class="btn primary" onclick="applyAssignments('${mediaId}')">Apply</button>
+          </div>
+        </div>
+      </div>
+    `;
+    document.getElementById('modalContainer').innerHTML = html;
+  });
+}
+
+async function applyAssignments(mediaId) {
+  const checks = document.querySelectorAll('.assign-check');
+  const selected = Array.from(checks).filter(c => c.checked).map(c => c.value);
+  const unselected = Array.from(checks).filter(c => !c.checked).map(c => c.value);
+
+  try {
+    if (selected.length) {
+      const fd = new FormData();
+      fd.append('device_ids', selected.join(','));
+      await apiFetch(`/media/${mediaId}/assign`, { method: 'POST', body: fd });
+    }
+    if (unselected.length) {
+      const fd = new FormData();
+      fd.append('device_ids', unselected.join(','));
+      await apiFetch(`/media/${mediaId}/unassign`, { method: 'POST', body: fd });
+    }
+    closeModal();
+    toast('Assignments updated ✓');
+    selectMedia(mediaId);
+  } catch (e) { toast('Error: ' + e.message, true); }
+}
+
+// ── Move file modal ──
+function showMoveModal(fileId) {
+  const html = `
+    <div class="modal-bg" onclick="if(event.target===this)closeModal()">
+      <div class="modal">
+        <h3>📂 Move to Folder</h3>
+        <div style="max-height:50vh;overflow-y:auto">
+          <div class="folder-row" onclick="moveFile('${fileId}', null)">
+            <span class="icon">📁</span> / (root)
+          </div>
+          ${folders.map(f => `
+            <div class="folder-row" onclick="moveFile('${fileId}','${f.id}')">
+              <span class="icon">📂</span> ${esc(f.path)}
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    </div>
+  `;
+  document.getElementById('modalContainer').innerHTML = html;
+}
+
+async function moveFile(fileId, folderId) {
+  const fd = new FormData();
+  if (folderId) fd.append('folder_id', folderId);
+  await apiFetch(`/media/${fileId}/move`, { method: 'POST', body: fd });
+  closeModal(); toast('File moved ✓');
+  await loadMedia(); renderMediaList(); selectMedia(fileId);
+}
+
+// ── Upload modal ──
+function showUploadModal() {
+  const html = `
+    <div class="modal-bg" onclick="if(event.target===this)closeModal()">
+      <div class="modal">
+        <h3>⬆ Upload Media</h3>
+        <div class="upload-zone" id="dropZone"
+             ondragover="event.preventDefault();this.classList.add('drag')"
+             ondragleave="this.classList.remove('drag')"
+             ondrop="event.preventDefault();this.classList.remove('drag');handleDrop(event)"
+             onclick="document.getElementById('fileInput').click()">
+          <p style="font-size:14px;margin-bottom:6px">Drop files here or click to browse</p>
+          <p style="font-size:11px">Video, audio, or images</p>
+          <input type="file" id="fileInput" multiple onchange="handleUpload(this.files)" style="display:none">
+        </div>
+        <div id="uploadProgress"></div>
+      </div>
+    </div>
+  `;
+  document.getElementById('modalContainer').innerHTML = html;
+}
+
+function handleDrop(e) { handleUpload(e.dataTransfer.files); }
+
+async function handleUpload(fileList) {
+  const prog = document.getElementById('uploadProgress');
+  for (const file of fileList) {
+    prog.innerHTML += `<div style="font-size:12px;padding:4px 0">⏳ ${esc(file.name)}…</div>`;
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+      await apiFetch('/media/upload', { method: 'POST', body: fd });
+      prog.innerHTML += `<div style="font-size:12px;padding:4px 0;color:var(--green)">✓ ${esc(file.name)}</div>`;
+    } catch (e) {
+      prog.innerHTML += `<div style="font-size:12px;padding:4px 0;color:var(--red)">✗ ${esc(file.name)}: ${e.message}</div>`;
+    }
+  }
+  await loadMedia();
+  renderMediaList();
+}
+
+// ── New folder modal ──
+function showNewFolderModal() {
+  const html = `
+    <div class="modal-bg" onclick="if(event.target===this)closeModal()">
+      <div class="modal">
+        <h3>+ New Folder</h3>
+        <input type="text" id="newFolderName" placeholder="Folder name" style="width:100%;padding:8px 12px;margin:8px 0;background:var(--bg);border:1px solid var(--border);border-radius:5px;color:var(--text);font-size:13px" onkeydown="if(event.key==='Enter')createFolder()">
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+          <button class="btn" onclick="closeModal()">Cancel</button>
+          <button class="btn primary" onclick="createFolder()">Create</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.getElementById('modalContainer').innerHTML = html;
+  setTimeout(() => document.getElementById('newFolderName')?.focus(), 100);
+}
+
+async function createFolder() {
+  const name = document.getElementById('newFolderName').value.trim();
+  if (!name) return;
+  const fd = new FormData();
+  fd.append('name', name);
+  if (currentFolderId) fd.append('parent_id', currentFolderId);
+  await apiFetch('/folders', { method: 'POST', body: fd });
+  closeModal(); toast('Folder created ✓');
+  await loadMedia(); renderMediaList();
+}
+
+// ── Folder actions ──
+function renameFolderPrompt(folderId, currentName) {
+  const name = prompt('New folder name:', currentName);
+  if (!name || name === currentName) return;
+  const fd = new FormData();
+  fd.append('name', name);
+  apiFetch(`/folders/${folderId}`, { method: 'PUT', body: fd }).then(() => {
+    toast('Renamed ✓'); loadMedia().then(() => renderMediaList());
+  });
+}
+
+async function deleteFolder(folderId) {
+  if (!confirm('Delete this folder? Files will be moved to root.')) return;
+  await apiFetch(`/folders/${folderId}`, { method: 'DELETE' });
+  toast('Folder deleted ✓');
+  currentFolderId = null; selectedId = null;
+  await loadMedia(); renderMediaList();
+  document.getElementById('detailPanel').innerHTML = '<div class="detail-empty">Folder deleted</div>';
+}
+
+// ── Media/device actions ──
+async function deleteMedia(fileId) {
+  if (!confirm('Delete this file?')) return;
+  await apiFetch(`/media/${fileId}`, { method: 'DELETE' });
+  toast('Deleted ✓'); selectedId = null;
+  await loadMedia(); renderMediaList();
+  document.getElementById('detailPanel').innerHTML = '<div class="detail-empty">File deleted</div>';
+}
+
+async function unassignMedia(mediaId, deviceId) {
+  const fd = new FormData();
+  fd.append('device_ids', deviceId);
+  await apiFetch(`/media/${mediaId}/unassign`, { method: 'POST', body: fd });
+  toast('Unassigned ✓'); selectMedia(mediaId);
+}
+
+async function unassignFromDevice(mediaId, deviceId) {
+  const fd = new FormData();
+  fd.append('device_ids', deviceId);
+  await apiFetch(`/media/${mediaId}/unassign`, { method: 'POST', body: fd });
+  toast('Unassigned ✓'); selectDevice(deviceId);
+}
+
+async function renameDevice(deviceId, currentName) {
+  const name = prompt('Device name:', currentName);
+  if (!name || name === currentName) return;
+  const fd = new FormData();
+  fd.append('label', name);
+  await apiFetch(`/admin/devices/${deviceId}`, { method: 'PUT', body: fd });
+  toast('Renamed ✓');
+  await loadDevices();
+  selectDevice(deviceId);
+}
+
+async function changeGroup(deviceId, currentGroup) {
+  const group = prompt('Group name:', currentGroup);
+  if (!group || group === currentGroup) return;
+  const fd = new FormData();
+  fd.append('group_name', group);
+  await apiFetch(`/admin/devices/${deviceId}`, { method: 'PUT', body: fd });
+  toast('Group changed ✓');
+  await loadDevices();
+  selectDevice(deviceId);
+}
+
+async function sendCmd(deviceId, command) {
+  const fd = new FormData();
+  fd.append('command', command);
+  await apiFetch(`/admin/devices/${deviceId}/command`, { method: 'POST', body: fd });
+  toast(`Command "${command}" sent ✓`);
+}
+
+// ── Modal helpers ──
+function closeModal() { document.getElementById('modalContainer').innerHTML = ''; }
+
+// ── Utilities ──
+function mediaIcon(f) {
+  const name = (f.original_name || f.filename || '').toLowerCase();
+  if (/\.(mp4|mkv|avi|mov|webm)$/.test(name)) return '🎥';
+  if (/\.(mp3|wav|flac|ogg|aac)$/.test(name)) return '🎵';
+  return '🖼';
+}
+function fmtBytes(b) {
+  if (!b) return '—';
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
+  if (b < 1073741824) return (b/1048576).toFixed(1) + ' MB';
+  return (b/1073741824).toFixed(2) + ' GB';
+}
+function fmtUptime(s) {
+  const d = Math.floor(s/86400), h = Math.floor((s%86400)/3600);
+  return d > 0 ? `${d}d ${h}h` : `${h}h ${Math.floor((s%3600)/60)}m`;
+}
+function timeAgo(iso) {
+  if (!iso) return 'never';
+  // Handle ISO with timezone offset (+00:00) or trailing Z
+  let d = new Date(iso);
+  if (isNaN(d.getTime())) d = new Date(iso + 'Z');
+  if (isNaN(d.getTime())) return iso.substring(0, 16);
+  const s = Math.floor((Date.now() - d) / 1000);
+  if (s < 0) return 'just now';
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s/60)}m ago`;
+  if (s < 86400) return `${Math.floor(s/3600)}h ago`;
+  return `${Math.floor(s/86400)}d ago`;
+}
+function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+function toast(msg, err) {
+  const el = document.createElement('div');
+  el.className = 'toast' + (err ? ' error' : '');
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 3000);
+}
+
+async function refreshAll() {
+  try {
+    await Promise.all([loadDevices(), loadMedia()]);
+    renderList();
+  } catch (e) { console.error(e); }
+}
+
+// ── Init ──
+(async () => {
+  if (token) {
+    try { await apiFetch('/admin/devices'); hideLogin(); refreshAll(); }
+    catch { showLogin(); }
+  } else { showLogin(); }
+  setInterval(refreshAll, 30000);
+})();
+</script>
+</body>
+</html>
