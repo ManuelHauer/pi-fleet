@@ -14,7 +14,6 @@ import socket
 import subprocess
 import sys
 import time
-import uuid
 from pathlib import Path
 from typing import Optional
 from urllib.request import Request, urlopen
@@ -77,22 +76,9 @@ class FleetClient:
         return config
 
     def _get_device_id(self) -> str:
-        """Generate or load persistent device ID based on machine-id."""
-        id_file = Path("/etc/fleet-client/device-id")
-        if id_file.exists():
-            return id_file.read_text().strip()
-        
-        # Try machine-id first
-        machine_id_path = Path("/etc/machine-id")
-        if machine_id_path.exists():
-            raw = machine_id_path.read_text().strip()
-            did = f"pi-{raw[:12]}"
-        else:
-            did = f"pi-{uuid.uuid4().hex[:12]}"
-        
-        id_file.parent.mkdir(parents=True, exist_ok=True)
-        id_file.write_text(did)
-        return did
+        """Stable device ID derived from Pi SoC serial; survives SD cloning."""
+        from identity import device_id
+        return device_id()
 
     def _get_hw_info(self) -> dict:
         """Collect hardware info for registration."""

@@ -10,6 +10,14 @@ set -e
 exec > /var/log/fleet-firstrun.log 2>&1
 echo "$(date): Fleet golden image first-run starting…"
 
+# Wipe inherited machine-id so a cloned image regenerates its own.
+# We don't use machine-id for identity (see client/identity.py) but keep the
+# hygiene — leaving a duplicated machine-id across the fleet breaks other
+# systemd consumers (e.g. journald, dbus) in subtle ways.
+truncate -s 0 /etc/machine-id || true
+rm -f /var/lib/dbus/machine-id
+systemd-machine-id-setup || true
+
 # Locate fleet folder (Bookworm mounts boot partition at /boot/firmware; early boot may use /boot)
 FLEET_DIR=""
 if [ -d "/boot/firmware/fleet" ]; then

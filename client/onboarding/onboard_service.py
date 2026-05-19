@@ -36,24 +36,11 @@ log = logging.getLogger("onboard-service")
 
 
 def get_device_id() -> str:
-    """Read device ID from fleet-client config or generate one."""
-    from pathlib import Path
-    id_file = Path("/etc/fleet-client/device-id")
-    if id_file.exists():
-        return id_file.read_text().strip()
-    
-    # Generate from machine-id
-    machine_id = Path("/etc/machine-id")
-    if machine_id.exists():
-        raw = machine_id.read_text().strip()
-        did = f"pi-{raw[:12]}"
-    else:
-        import uuid
-        did = f"pi-{uuid.uuid4().hex[:12]}"
-    
-    id_file.parent.mkdir(parents=True, exist_ok=True)
-    id_file.write_text(did)
-    return did
+    """Stable device ID derived from Pi SoC serial; survives SD cloning."""
+    # Delegates to client/identity.py which is the canonical source.
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from identity import device_id
+    return device_id()
 
 
 def check_usb_fallback() -> bool:
