@@ -11,7 +11,6 @@ User=pi
 ExecStart=/usr/bin/python3 /opt/fleet-client/fleet_client.py
 Restart=always
 RestartSec=15
-WatchdogSec=60
 StandardOutput=journal
 StandardError=journal
 
