@@ -1,6 +1,6 @@
-# 🎬 Pi Fleet — Ars Electronica Media Orchestration
+# 🎬 Pi Fleet — Media Orchestration
 
-A centralized fleet management and media orchestration platform designed to remotely manage, monitor, and deploy headless video playback across up to 150 Raspberry Pi (3/4/5) players for the Ars Electronica Festival.
+A centralized fleet management and media orchestration platform designed to remotely manage, monitor, and deploy headless video playback across up to 150 Raspberry Pi (3/4/5) players for large-scale exhibitions and events.
 
 ## 🌟 Key Features
 
@@ -24,6 +24,3 @@ A centralized fleet management and media orchestration platform designed to remo
 - **Client:** Python, Flask (Local UI), systemd
 - **Video Engine:** `mpv` (KMS/DRM)
 - **Deployment:** Bash, Raspberry Pi Imager CLI, udev
-
-## 🔒 Security Note
-All sensitive tokens, passwords, and `.env` files are ignored via `.gitignore` and must be provisioned independently upon deployment.
