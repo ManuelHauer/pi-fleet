@@ -554,7 +554,7 @@ class FleetClient:
                 log.warning(f"Initial register exception: {e}")
 
         last_fast = 0.0
-        last_slow = 0.0
+        next_slow_at = 0.0  # monotonic deadline; refreshed each fire with jitter
         prev_state: Optional[str] = None
 
         while True:
@@ -590,9 +590,11 @@ class FleetClient:
                         except Exception as e:
                             log.error(f"Triggered poll failed: {e}")
 
-                # 3. Slow loop (manifest + heartbeat)
-                if now - last_slow >= SLOW_POLL_INTERVAL:
-                    last_slow = now
+                # 3. Slow loop (manifest + heartbeat). Jitter is applied here
+                # so 150 Pis don't all hammer the server on the same second.
+                if now >= next_slow_at:
+                    next_slow_at = now + SLOW_POLL_INTERVAL + random.uniform(
+                        0, self.config.get("jitter_max", 0))
                     pinned = self._is_pinned()
                     if state == "PLAYING_CONNECTED":
                         if not pinned:
@@ -617,8 +619,7 @@ class FleetClient:
                             pass
                     # NO_MEDIA: nothing to do; still ticked OSD above.
 
-                # Jitter to spread out fleet-wide polling
-                time.sleep(1 + random.uniform(0, self.config.get("jitter_max", 0) / 30))
+                time.sleep(1)
 
             except KeyboardInterrupt:
                 log.info("Shutdown requested")
