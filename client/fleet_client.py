@@ -270,6 +270,15 @@ class FleetClient:
 
     # ── OSD writer ──
 
+    def _persist_state(self, state: str, offline_reason: Optional[str]):
+        """Mirror the derived state into state.json so other readers
+        (local_control UI, diag.sh) can show it without re-deriving."""
+        s = self._load_state()
+        s["state"] = state
+        s["offline_reason"] = offline_reason or ""
+        s["state_at"] = time.time()
+        self._save_state(s)
+
     def _update_osd(self, state: str, prev_state: Optional[str]):
         """Write the overlay file consumed by fleet_player.py.
 
@@ -562,8 +571,24 @@ class FleetClient:
                 if state != prev_state:
                     log.info(f"State transition: {prev_state} → {state}")
                     self._update_osd(state, prev_state)
+                    reason = self._reason_for_offline() if state == "PLAYING_OFFLINE" else None
+                    self._persist_state(state, reason)
                     prev_state = state
                 self._tick_osd_cleanup()
+
+                # 2b. Externally-triggered immediate update (from local_control UI)
+                update_trigger = Path("/tmp/fleet-update-now")
+                if update_trigger.exists():
+                    try:
+                        update_trigger.unlink()
+                    except Exception:
+                        pass
+                    log.info("Manual update trigger received")
+                    if state == "PLAYING_CONNECTED" and not self._is_pinned():
+                        try:
+                            self._poll_manifest()
+                        except Exception as e:
+                            log.error(f"Triggered poll failed: {e}")
 
                 # 3. Slow loop (manifest + heartbeat)
                 if now - last_slow >= SLOW_POLL_INTERVAL:
