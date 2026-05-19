@@ -1,16 +1,17 @@
 [Unit]
-Description=Ars Festival Media Fleet Client
-After=network-online.target
-Wants=network-online.target
+Description=Ars Festival Fleet Client (management daemon)
+After=network.target fleet-player.service
+Wants=fleet-player.service
+StartLimitIntervalSec=600
+StartLimitBurst=10
 
 [Service]
 Type=simple
 User=pi
-SupplementaryGroups=video render audio input
 ExecStart=/usr/bin/python3 /opt/fleet-client/fleet_client.py
 Restart=always
-RestartSec=30
-WatchdogSec=86400
+RestartSec=15
+WatchdogSec=60
 StandardOutput=journal
 StandardError=journal
 

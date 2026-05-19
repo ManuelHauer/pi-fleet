@@ -1,7 +1,6 @@
 [Unit]
 Description=Ars Festival Fleet Local Control UI
-After=fleet-client.service network-online.target
-Wants=network-online.target
+After=fleet-client.service network.target
 
 [Service]
 Type=simple
