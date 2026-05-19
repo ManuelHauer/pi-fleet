@@ -1,0 +1,18 @@
+[Unit]
+Description=Ars Festival Media Fleet Client
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+SupplementaryGroups=video render audio input
+ExecStart=/usr/bin/python3 /opt/fleet-client/fleet_client.py
+Restart=always
+RestartSec=30
+WatchdogSec=86400
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

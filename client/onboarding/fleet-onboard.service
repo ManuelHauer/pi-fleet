@@ -1,0 +1,17 @@
+[Unit]
+Description=Ars Festival Fleet Wi-Fi Onboarding
+Before=fleet-client.service
+After=network.target
+ConditionPathExists=!/etc/fleet-client/onboard-done
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/python3 /opt/fleet-client/onboarding/onboard_service.py
+ExecStartPost=/usr/bin/touch /etc/fleet-client/onboard-done
+TimeoutStartSec=600
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

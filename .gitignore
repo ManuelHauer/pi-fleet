@@ -1,0 +1,43 @@
+# Environments
+.venv/
+.venv_sys/
+env/
+venv/
+ENV/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Secrets and Configs
+.env
+.DS_Store
+config.json
+
+# Media/Logs
+server/data/
+client/media/
+client/releases/
+*.log
+*.log.*

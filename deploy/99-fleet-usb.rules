@@ -1,0 +1,4 @@
+# Udev rule to trigger fleet USB sync script when a USB block device is added
+# Ensure your OS automounts USBs (e.g. via usbmount or udisks2) before this triggers,
+# or handle mounting inside the script.
+ACTION=="add", SUBSYSTEMS=="usb", SUBSYSTEM=="block", ENV{ID_FS_USAGE}=="filesystem", RUN+="/usr/bin/systemd-run --no-block /opt/fleet-client/usb_sync.sh $env{DEVNAME}"

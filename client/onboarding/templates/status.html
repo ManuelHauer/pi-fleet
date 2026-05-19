@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>ARS Festival — Setup {{ 'Complete' if success else 'Failed' }}</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, system-ui, sans-serif;
+    background: #0a0a0f; color: #e0e0e8;
+    min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    padding: 20px;
+  }
+  .card {
+    background: #141420; border: 1px solid #2a2a3e; border-radius: 16px;
+    padding: 32px; width: 100%; max-width: 400px; text-align: center;
+  }
+  h1 { font-size: 20px; margin-bottom: 8px; }
+  .icon { font-size: 48px; margin-bottom: 16px; }
+  .detail { color: #8888a0; font-size: 13px; margin: 8px 0; }
+  .detail strong { color: #e0e0e8; }
+  .btn {
+    display: inline-block; padding: 12px 24px; border: 1px solid #2a2a3e;
+    border-radius: 8px; color: #e0e0e8; font-size: 14px; text-decoration: none;
+    margin-top: 20px; cursor: pointer; background: transparent;
+  }
+  .btn:hover { background: #1c1c2e; }
+  .success { color: #00b894; }
+  .error { color: #ff6b6b; }
+</style>
+</head>
+<body>
+<div class="card">
+  {% if success %}
+    <div class="icon">✅</div>
+    <h1 class="success">Connected!</h1>
+    <div class="detail">Network: <strong>{{ ssid }}</strong></div>
+    <div class="detail">IP Address: <strong>{{ ip }}</strong></div>
+    <div class="detail">Device: <strong>{{ device_id }}</strong></div>
+    <div class="detail" style="margin-top:16px; color:#a29bfe;">
+      Device is now online and syncing media.<br>
+      You can disconnect from the setup Wi-Fi.<br>
+      Check the dashboard for device status.
+    </div>
+  {% else %}
+    <div class="icon">❌</div>
+    <h1 class="error">Connection Failed</h1>
+    <div class="detail">{{ error }}</div>
+    <div class="detail" style="margin-top:12px;">
+      Please check the password and try again.<br>
+      Make sure you're close enough to the venue Wi-Fi.
+    </div>
+    <a href="/" class="btn">↻ Try Again</a>
+  {% endif %}
+</div>
+</body>
+</html>

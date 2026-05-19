@@ -1,0 +1,16 @@
+[Unit]
+Description=Ars Festival Fleet Local Control UI
+After=fleet-client.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+ExecStart=/usr/bin/python3 /opt/fleet-client/local_control.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
