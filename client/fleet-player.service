@@ -1,6 +1,6 @@
 [Unit]
 Description=Ars Festival Fleet Player (mpv)
-After=multi-user.target
+After=local-fs.target
 StartLimitIntervalSec=600
 StartLimitBurst=20
 
