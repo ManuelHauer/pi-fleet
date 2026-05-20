@@ -38,7 +38,7 @@ def startup():
 # Health / Info
 # ──────────────────────────────────────────────
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 def health():
     return {"status": "ok", "service": "ars-fleet-server", "version": "0.1.0"}
 

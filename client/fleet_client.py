@@ -56,10 +56,7 @@ CONNECTED_OSD_DURATION_SEC = 5
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler("/var/log/fleet-client.log", mode="a"),
-    ]
+    handlers=[logging.StreamHandler()],
 )
 log = logging.getLogger("fleet-client")
 

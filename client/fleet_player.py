@@ -51,10 +51,7 @@ IDLE_REDRAW_INTERVAL = 30
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler("/var/log/fleet-player.log", mode="a"),
-    ]
+    handlers=[logging.StreamHandler()],
 )
 log = logging.getLogger("fleet-player")
 
