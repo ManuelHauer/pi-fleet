@@ -31,6 +31,17 @@ def get_db():
         conn.close()
 
 
+def _ensure_column(db, table: str, col: str, ddl: str):
+    """Add a column to an existing table if it doesn't exist.
+
+    SQLite has no ADD COLUMN IF NOT EXISTS, so we PRAGMA-check first.
+    Used for migrations on long-lived DBs.
+    """
+    existing = [r[1] for r in db.execute(f"PRAGMA table_info({table})").fetchall()]
+    if col not in existing:
+        db.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
+
+
 def init_db():
     """Create tables if not exist."""
     with get_db() as db:
@@ -48,6 +59,9 @@ def init_db():
                 current_manifest_version TEXT,
                 status TEXT DEFAULT 'unknown',
                 registered_at TEXT,
+                pinned INTEGER DEFAULT 0,
+                pinned_source TEXT,
+                pinned_at TEXT,
                 extra JSON DEFAULT '{}'
             );
 
@@ -126,6 +140,10 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_device_media_media ON device_media(media_id);
             CREATE INDEX IF NOT EXISTS idx_media_files_folder ON media_files(folder_id);
         """)
+        # Migrations for existing DBs (v0.2 USB-pin model)
+        _ensure_column(db, "devices", "pinned", "pinned INTEGER DEFAULT 0")
+        _ensure_column(db, "devices", "pinned_source", "pinned_source TEXT")
+        _ensure_column(db, "devices", "pinned_at", "pinned_at TEXT")
 
 
 # --- Device operations ---
@@ -288,6 +306,8 @@ def ack_command(cmd_id: str, result: str = "ok") -> bool:
 def record_heartbeat(device_id: str, manifest_version: str = None,
                      vlc_status: str = None, cpu_temp: float = None,
                      disk_free_mb: int = None, uptime_seconds: int = None,
+                     pinned: bool = None, pinned_source: str = None,
+                     pinned_at: str = None,
                      extra: dict = None) -> dict:
     with get_db() as db:
         db.execute("""INSERT INTO heartbeats (device_id, timestamp, manifest_version,
@@ -296,10 +316,36 @@ def record_heartbeat(device_id: str, manifest_version: str = None,
                    (device_id, utcnow(), manifest_version, vlc_status,
                     cpu_temp, disk_free_mb, uptime_seconds,
                     json.dumps(extra or {})))
-        # Update device last_seen
-        db.execute("UPDATE devices SET last_seen=?, status='online', current_manifest_version=COALESCE(?,current_manifest_version) WHERE id=?",
-                   (utcnow(), manifest_version, device_id))
+        # Update device last_seen + pin state (if provided)
+        db.execute(
+            """UPDATE devices SET
+                last_seen=?,
+                status='online',
+                current_manifest_version=COALESCE(?,current_manifest_version),
+                pinned=COALESCE(?, pinned),
+                pinned_source=COALESCE(?, pinned_source),
+                pinned_at=COALESCE(?, pinned_at)
+               WHERE id=?""",
+            (utcnow(), manifest_version,
+             1 if pinned is True else (0 if pinned is False else None),
+             pinned_source if pinned_source else None,
+             pinned_at if pinned_at else None,
+             device_id))
         return {"recorded": True}
+
+
+def set_device_pin(device_id: str, pinned: bool,
+                   pinned_source: str = None, pinned_at: str = None) -> bool:
+    """Server-side pin toggle (admin override). Returns True if a row matched."""
+    with get_db() as db:
+        cur = db.execute(
+            """UPDATE devices SET pinned=?, pinned_source=?, pinned_at=?
+               WHERE id=?""",
+            (1 if pinned else 0,
+             pinned_source if pinned else None,
+             pinned_at if pinned else None,
+             device_id))
+        return cur.rowcount > 0
 
 
 def get_device_heartbeats(device_id: str, limit: int = 50) -> list:

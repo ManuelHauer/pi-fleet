@@ -56,6 +56,8 @@ def require_auth(f):
 
 MEDIA_BASE = Path("/opt/fleet-media")
 STATE_FILE = MEDIA_BASE / "state.json"
+OSD_FILE = MEDIA_BASE / "osd.json"
+RESTART_TRIGGER = MEDIA_BASE / ".restart-player"
 LOCAL_STATE_FILE = Path("/etc/fleet-client/local-state.json")
 
 
@@ -186,6 +188,15 @@ def _get_manifest_version() -> str:
     return "—"
 
 
+def _read_state_json() -> dict:
+    if STATE_FILE.exists():
+        try:
+            return json.loads(STATE_FILE.read_text())
+        except Exception:
+            pass
+    return {}
+
+
 # ── HTML template (single-page, mobile-first) ──
 
 CONTROL_HTML = """<!DOCTYPE html>
@@ -271,8 +282,20 @@ CONTROL_HTML = """<!DOCTYPE html>
 <body>
   <div class="header">
     <h1>🎬 {{ device.hostname }}</h1>
-    <div class="sub">{{ device.device_id }} · {{ device.group }}</div>
+    <div class="sub">{{ device.device_id }} · {{ device.group }} · {{ fleet_state }}{% if offline_reason %} ({{ offline_reason }}){% endif %}</div>
   </div>
+
+  {% if pinned %}
+  <div class="card" style="border-color:#7c4dff;background:#7c4dff15">
+    <div style="display:flex;align-items:center;gap:10px">
+      <span style="font-size:24px">🔌</span>
+      <div style="flex:1">
+        <div style="font-weight:600">Pinned to USB media</div>
+        <div style="font-size:11px;color:#8888a0">Dashboard updates are ignored until released from the server.</div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
 
   <!-- Volume Control -->
   <div class="card">
@@ -331,8 +354,9 @@ CONTROL_HTML = """<!DOCTYPE html>
   <!-- Actions -->
   <div class="card">
     <div class="card-title">⚙ Actions</div>
-    <button class="action-btn" onclick="apiAction('vlc_restart')">▶ Restart Player</button>
+    <button class="action-btn" onclick="apiAction('player_restart')">▶ Restart Player</button>
     <button class="action-btn" onclick="apiAction('update_now')">⬇ Check for Updates</button>
+    <button class="action-btn" onclick="apiAction('force_osd')">📺 Show status on screen (30s)</button>
     <button class="action-btn" onclick="apiAction('wifi_reset')">📶 Reset Wi-Fi (Re-enter credentials)</button>
     <button class="action-btn danger" onclick="if(confirm('Reboot device?'))apiAction('reboot')">⟳ Reboot Device</button>
   </div>
@@ -474,11 +498,16 @@ def index():
     volume_pct = _get_volume()  # mpv already returns 0-100
     media = _get_current_media()
     manifest_version = _get_manifest_version()
+    st = _read_state_json()
     return render_template_string(CONTROL_HTML,
                                   device=device,
                                   volume_pct=volume_pct,
                                   media=media,
-                                  manifest_version=manifest_version)
+                                  manifest_version=manifest_version,
+                                  pinned=bool(st.get("pinned")),
+                                  pinned_source=st.get("pinned_source", ""),
+                                  fleet_state=st.get("state", "—"),
+                                  offline_reason=st.get("offline_reason", ""))
 
 
 @app.route("/api/status")
@@ -487,11 +516,16 @@ def api_status():
     device = _get_device_info()
     volume_pct = _get_volume()
     media = _get_current_media()
+    st = _read_state_json()
     return jsonify({
         "device": device,
         "volume_pct": volume_pct,
         "media_count": len(media),
         "manifest_version": _get_manifest_version(),
+        "pinned": bool(st.get("pinned")),
+        "pinned_source": st.get("pinned_source", ""),
+        "state": st.get("state", "—"),
+        "offline_reason": st.get("offline_reason", ""),
     })
 
 
@@ -515,15 +549,37 @@ def api_action():
     data = request.get_json(force=True)
     action = data.get("action", "")
 
-    if action == "vlc_restart":
-        subprocess.Popen(["systemctl", "restart", "fleet-client"], 
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        return jsonify({"ok": True, "message": "Restarting playback…"})
+    if action in ("vlc_restart", "player_restart"):
+        # Signal fleet_player by touching the restart trigger — no service
+        # bounce needed and no IPC dependency.
+        try:
+            RESTART_TRIGGER.parent.mkdir(parents=True, exist_ok=True)
+            RESTART_TRIGGER.touch()
+        except Exception as e:
+            return jsonify({"ok": False, "message": f"Trigger failed: {e}"})
+        return jsonify({"ok": True, "message": "Player restart signaled"})
 
     elif action == "update_now":
-        # Touch a trigger file that fleet_client checks
+        # Touch a trigger file that fleet_client checks each tick
         Path("/tmp/fleet-update-now").touch()
         return jsonify({"ok": True, "message": "Update check triggered"})
+
+    elif action == "force_osd":
+        # Force a 30-second on-screen status badge for techs walking the floor.
+        from datetime import datetime, timedelta, timezone
+        info = _get_device_info()
+        force_until = datetime.now(timezone.utc) + timedelta(seconds=30)
+        payload = {
+            "message": f"Device: {info.get('device_id','?')} · IP: {info.get('ip','?')}",
+            "force_until": force_until.isoformat(),
+            "kind": "info",
+        }
+        try:
+            OSD_FILE.parent.mkdir(parents=True, exist_ok=True)
+            OSD_FILE.write_text(json.dumps(payload))
+        except Exception as e:
+            return jsonify({"ok": False, "message": f"OSD write failed: {e}"})
+        return jsonify({"ok": True, "message": "Status overlay on for 30s"})
 
     elif action == "reboot":
         subprocess.Popen(["sudo", "reboot"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

@@ -90,10 +90,21 @@ def device_heartbeat(
     cpu_temp: float = Form(None),
     disk_free_mb: int = Form(None),
     uptime_seconds: int = Form(None),
+    pinned: str = Form(None),
+    pinned_source: str = Form(None),
+    pinned_at: str = Form(None),
     _auth=Depends(verify_device)
 ):
-    result = db.record_heartbeat(device_id, manifest_version, vlc_status,
-                                 cpu_temp, disk_free_mb, uptime_seconds)
+    pin_bool: Optional[bool] = None
+    if pinned is not None and pinned != "":
+        pin_bool = pinned in ("1", "true", "True", "yes")
+    result = db.record_heartbeat(
+        device_id, manifest_version, vlc_status,
+        cpu_temp, disk_free_mb, uptime_seconds,
+        pinned=pin_bool,
+        pinned_source=pinned_source or None,
+        pinned_at=pinned_at or None,
+    )
     # Also return pending commands
     commands = db.get_pending_commands(device_id)
     return {"heartbeat": result, "pending_commands": commands,
@@ -294,7 +305,16 @@ def get_device_assignments(device_id: str, admin=Depends(verify_admin)):
 
 @app.get("/device/manifest/{device_id}")
 def get_device_manifest(device_id: str, _auth=Depends(verify_device)):
-    """Device-specific manifest endpoint — returns files assigned to this device."""
+    """Device-specific manifest endpoint — returns files assigned to this device.
+
+    If the device is pinned (USB-sourced media), return a sentinel manifest
+    so the client knows to skip the swap. Client also self-skips when its
+    local state.json says pinned=true, but this is the server-side belt-and-
+    suspenders.
+    """
+    device = db.get_device(device_id)
+    if device and device.get("pinned"):
+        return {"version": "pinned", "skip": True, "device_id": device_id}
     manifest = db.get_device_manifest(device_id)
     if not manifest:
         return {"version": None, "files": [], "device_id": device_id}
@@ -344,8 +364,9 @@ def admin_send_command(
     params: str = Form("{}"),
     admin=Depends(verify_admin)
 ):
-    """Send a command to a device (reboot, vlc_restart, update_now, health_probe)."""
-    valid_commands = {"reboot", "vlc_restart", "update_now", "health_probe", "shell"}
+    """Send a command to a device."""
+    valid_commands = {"reboot", "vlc_restart", "player_restart", "update_now",
+                      "health_probe", "shell", "force_poll", "unpin"}
     if command not in valid_commands:
         raise HTTPException(400, f"Invalid command. Valid: {valid_commands}")
     try:
@@ -354,6 +375,17 @@ def admin_send_command(
         params_dict = {}
     result = db.create_command(device_id, command, params_dict)
     return result
+
+
+@app.post("/admin/devices/{device_id}/unpin")
+def admin_unpin_device(device_id: str, admin=Depends(verify_admin)):
+    """Release a USB-pinned device: clear server pin state and queue a
+    force_poll command so the device clears its local pin on next heartbeat
+    and immediately re-polls the manifest."""
+    if not db.set_device_pin(device_id, pinned=False):
+        raise HTTPException(404, "Device not found")
+    cmd = db.create_command(device_id, "force_poll", {})
+    return {"unpinned": True, "device_id": device_id, "queued_command": cmd}
 
 
 @app.get("/admin/devices/{device_id}/heartbeats")

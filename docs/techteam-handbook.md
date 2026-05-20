@@ -1,12 +1,14 @@
 # Ars Festival Media Fleet — Tech Team Handbook
 
-> Version 0.1 · February 2026
+> Version 0.2 · May 2026
 
 ---
 
 ## Overview
 
-Each exhibition display runs on a **Raspberry Pi** (model 3, 4, or 5) connected to a screen via HDMI. Media (video, audio, images) is delivered to each Pi from a central server over Wi-Fi. You **never** need to bring USB sticks or swap SD cards in the field.
+Each exhibition display runs on a **Raspberry Pi** (model 3, 4, or 5) connected to a screen via HDMI. Media (video, audio, images) is delivered to each Pi from a central server over a private Tailscale mesh (Headscale). If a venue has no Wi-Fi, you can still drop media on the Pi via a USB stick — see §6.
+
+A freshly-installed Pi **never** shows a black screen: it boots into an info card with its device ID, hostname, IP, and the message **"WAITING FOR MEDIA"**. If you can see that card on HDMI, the install worked.
 
 ---
 
@@ -68,12 +70,27 @@ Each Pi runs a **local control panel** accessible from any device on the same Wi
 |--------|-------------|
 | 🔊 Volume slider | Adjust playback volume (0–200%) |
 | 🔇 Mute button | Instant mute |
-| ▶ Restart Playback | Restart the VLC media loop |
-| ⬇ Check for Updates | Force immediate media sync |
+| ▶ Restart Player | Restart the mpv media loop (does not touch the management daemon) |
+| ⬇ Check for Updates | Force immediate media sync from server |
+| 📺 Show status on screen | Force the on-screen status overlay on for 30 seconds (useful when the offline countdown has already expired) |
 | 📶 Reset Wi-Fi | Clear stored Wi-Fi (triggers setup mode on reboot) |
 | ⟳ Reboot Device | Full device reboot |
 
 Volume settings persist across reboots.
+
+### Reading the On-Screen Overlay
+
+Each Pi may briefly draw a small text overlay in the bottom-right of the video:
+
+| Overlay | What it means |
+|---|---|
+| `⚠ OFFLINE · no wifi · auto-hide MM:SS` | Pi has no default route. Wi-Fi died at the venue. |
+| `⚠ OFFLINE · no mesh · auto-hide MM:SS` | Wi-Fi is up but Tailscale won't connect (Headscale unreachable or authkey expired). |
+| `⚠ OFFLINE · no server · auto-hide MM:SS` | Mesh is up but the server is unreachable (e.g. server box is rebooting). |
+| `✓ CONNECTED` (flash, ~5s) | Pi just reconnected to the server. |
+| `🔌 Pinned to USB media` (in the local UI banner) | Device is showing USB content; dashboard pushes are ignored until you Release. |
+
+The offline overlay auto-hides after 5 minutes and won't reappear until the **next** offline episode. To force it on again, open `:8080` and press **📺 Show status on screen**.
 
 ---
 
@@ -167,21 +184,62 @@ You can publish different media to different groups.
 
 ---
 
-## 6. Troubleshooting
+## 6. Updating Content via USB Stick
+
+Insert a FAT32 USB stick with either:
+
+- Media files directly at the root, **or**
+- A `fleet/` subfolder containing the media
+
+…into a running Pi. Within ~10 seconds:
+
+1. The stick is mounted read-only.
+2. Files are copied into a hashed release dir (`releases/usb-<hash12>`).
+3. The `current` symlink is atomically swapped.
+4. The player reloads with the new content.
+5. **The device becomes "pinned"** — dashboard pushes are ignored until you Release.
+
+In the dashboard the device will show a purple **🔌** icon next to its name and a **Release** button in the detail panel. Click Release when you want the device to start picking up dashboard manifests again.
+
+Re-inserting the **same** stick is a no-op (idempotent). Re-inserting a stick with **different** content does an atomic swap to the new content; the device stays pinned.
+
+> Use case at the festival: artist arrives at the opening with last-minute edits → tech walks the room with a USB stick → all kiosks updated within a minute, no dashboard touch required.
+
+---
+
+## 7. Troubleshooting
+
+### Pi shows `⚠ OFFLINE · no wifi`
+Wi-Fi died. Check the access point / router at the venue. Once Wi-Fi recovers the Pi will flash `✓ CONNECTED` and resume normal polling.
+
+### Pi shows `⚠ OFFLINE · no mesh`
+Wi-Fi is up but the Tailscale mesh isn't. Either the per-SD authkey expired (re-flash SD) or Headscale is down (check with team lead).
+
+### Pi shows `⚠ OFFLINE · no server`
+Mesh is fine, but the server isn't responding. Check the Mac mini at HQ.
+
+### Pi shows the "WAITING FOR MEDIA" idle card
+The Pi has no media. Either no manifest has been published to its group yet, or the device hasn't pulled it. Try **Update Now** in the dashboard or **⬇ Check for Updates** in the local UI.
+
+### Pi shows a 🔌 in the dashboard but I want the dashboard content
+The device is pinned to a USB-inserted release. Click **Release** in the detail panel.
+
+### Generic troubleshooting
 
 | Problem | Solution |
 |---------|----------|
 | Pi shows setup screen after successful Wi-Fi setup | Check that venue Wi-Fi is working. Reboot Pi and try again. |
-| No media playing (black screen) | Check dashboard — is device online? Is a manifest published for its group? Try "Update Now" from dashboard. |
+| No media playing and no idle card either | mpv may have crashed. Press **▶ Restart Player** in the local UI; if that doesn't fix it, reboot. |
 | Audio too loud/quiet | Use local control panel (`http://<ip>:8080`) to adjust volume. |
 | Pi offline in dashboard | Check power and Wi-Fi. Pi may have lost Wi-Fi connection — visit device physically and check HDMI screen for status. |
-| Media not updating | Default sync every 12h. Use "Update Now" from dashboard or local control for immediate sync. |
+| Media not updating | Default sync every 30s. Use **Update Now** from dashboard or local control for immediate sync. If device is pinned, click **Release** first. |
 | Wrong media on device | Check device group assignment in dashboard. Ensure correct manifest is published for that group. |
-| Multiple Pis on same network | Each Pi has a unique hostname shown on its setup/status screen and in the dashboard. Use the IP address to access each one. |
+| Multiple Pis on same network | Each Pi has a unique hostname shown on its idle screen and in the dashboard. Use the IP address to access each one. |
+| "What's wrong with this Pi?" | SSH (tailnet) into the Pi and run `sudo /opt/fleet-client/diag.sh` for a one-shot health dump. |
 
 ---
 
-## 7. Security
+## 8. Security
 
 - **Central dashboard:** protected by admin username + password (or Bearer token).
 - **Local device control:** protected by shared tech team password.
@@ -197,7 +255,7 @@ You can publish different media to different groups.
 
 ---
 
-## 8. Quick Reference Card
+## 9. Quick Reference Card
 
 ```
 Setup:    Connect Pi → HDMI shows AP → Phone connects → Enter Wi-Fi → Done
