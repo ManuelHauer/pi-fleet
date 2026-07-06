@@ -12,7 +12,8 @@ set -euo pipefail
 
 DISK="${1:?Usage: $0 <diskN> (e.g. disk2)}"
 RPI_IMAGER="/Applications/Raspberry Pi Imager.app/Contents/MacOS/rpi-imager"
-OS_URL="https://downloads.raspberrypi.com/raspios_lite_armhf_latest"
+# arm64: Pi 3B+/4/5 all run it, and mpv performs better than on armhf
+OS_URL="${FLEET_OS_URL:-https://downloads.raspberrypi.com/raspios_lite_arm64_latest}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PREP_SCRIPT="$SCRIPT_DIR/prepare_sd_card.sh"
 FIRST_RUN="$SCRIPT_DIR/pi_firstboot_fleet.sh"

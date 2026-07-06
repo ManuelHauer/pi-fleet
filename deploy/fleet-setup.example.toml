@@ -1,0 +1,40 @@
+# fleet-setup.toml — pre-primed SD card configuration (ALL SECTIONS OPTIONAL)
+#
+# Copy this file to `fleet-setup.toml` and drop it either:
+#   - onto the FLEET-MEDIA partition (the big volume you also drop media on), or
+#   - onto the boot partition ("bootfs")
+# The FLEET-MEDIA copy wins if both exist.
+#
+# The Pi applies it on the next boot. Applied ONCE per file content — edit the
+# file (any change) and it is applied again. This means later changes made in
+# the dashboard or local UI are NOT overwritten on every boot.
+#
+# ⚠ This file contains a Wi-Fi password in plain text. That is by design
+# (same as Raspberry Pi Imager's preconfiguration) — treat prepared cards
+# like keys to the venue network. NEVER commit a filled-in copy to git.
+
+[wifi]
+# Venue network the Pi should join — skips the phone/captive-portal step.
+ssid = "VenueWiFi-Name"
+password = "the-venue-password"
+# hidden = false        # true if the SSID is not broadcast
+# country = "AT"        # Wi-Fi regulatory domain (default: image setting)
+
+[device]
+# Shown in the dashboard. Use something a technician can find in the venue.
+label = "OK Linz — Mediendeck, left screen"
+group = "ok-linz"       # venue/group for bulk media assignment
+# location = "OK Linz"  # free-text venue name
+
+[player]
+# Playback defaults for this device (changeable later via dashboard/local UI).
+rotation = 0            # 0 | 90 | 180 | 270 (clockwise)
+image_duration_s = 10   # seconds per image in a slideshow
+volume_pct = 100        # 0–200
+# muted = false
+
+[server]
+# Only needed when this card should talk to a different fleet server than
+# the one baked into the golden image.
+# url = "https://fleet.example.org"
+# device_psk = "the-device-psk"
