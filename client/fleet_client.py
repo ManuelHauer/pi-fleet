@@ -643,7 +643,19 @@ class FleetClient:
                 state["pinned"] = False
                 state.pop("pinned_source", None)
                 state.pop("pinned_at", None)
+                # keep sd_signature: after Release the card that's still inserted
+                # must NOT immediately re-pin — only changed content (or an
+                # explicit "Play from SD") re-pins.
                 self._save_state(state)
+                # Report the cleared pin to the server BEFORE polling: the
+                # heartbeat that just delivered this command still carried
+                # pinned=1, which re-set the server DB and would make the manifest
+                # endpoint answer "still pinned, skip". Push pinned=0 first so the
+                # very next poll swaps back immediately (was ~70s late otherwise).
+                try:
+                    self._heartbeat()
+                except Exception:
+                    pass
                 updated = self._poll_manifest()
                 result = "unpinned + " + ("updated" if updated else "no update")
 
