@@ -85,12 +85,18 @@ sf.parent.mkdir(parents=True, exist_ok=True)
 sf.write_text(json.dumps(state, indent=2))
 PYEOF
 
-# Write playlist for fleet-player
+# Write playlist for fleet-player (playable extensions only — a README.txt
+# or wifi.json on the stick must not end up in the playlist)
 python3 - <<PYEOF
 from pathlib import Path
+EXTS = {".mp4",".mkv",".avi",".mov",".webm",".m4v",
+        ".jpg",".jpeg",".png",".bmp",".gif",".webp",
+        ".mp3",".wav",".flac",".ogg",".aac"}
 cur = Path("$MEDIA_BASE/current")
 out = Path("$PLAYLIST_FILE")
-files = sorted(p for p in cur.iterdir() if p.is_file() and not p.name.startswith("."))
+files = sorted(p for p in cur.iterdir()
+               if p.is_file() and not p.name.startswith(".")
+               and p.suffix.lower() in EXTS)
 out.write_text("\n".join(str(p) for p in files) + "\n")
 PYEOF
 
