@@ -161,11 +161,14 @@ def main():
                             "falling through to portal setup")
         setup_config.mark_applied(cfg_path)  # non-wifi parts are applied either way
 
-    # 2. Existing venue profile (previous onboarding)
+    # 2a. Already online? Wi-Fi may be configured OUTSIDE our system (Imager
+    # custom.toml, Ethernet, manual nmcli) — never tear that down with an AP.
+    if nm_manager.get_ip():
+        finish(device_id, via=f"already connected ({nm_manager.get_current_ssid() or 'ethernet'})")
+        return
+
+    # 2b. Existing venue profile (previous onboarding)
     if nm_manager.has_venue_profile():
-        if nm_manager.get_current_ssid() and nm_manager.get_ip():
-            finish(device_id, via="existing profile (already connected)")
-            return
         log.info("Venue profile exists — attempting reconnect…")
         if nm_manager.connect_venue(timeout_sec=45):
             finish(device_id, via="existing profile")
