@@ -80,9 +80,18 @@ instant the keyboard is plugged in.
 | `[` / `]` | Slideshow: slower / faster (image duration ± 2 s) |
 | `→` / `←` (or next/prev track keys) | Next / previous item |
 | `Space` (or play/pause key) | Pause / resume |
+| `i` | **Show this device's IP + phone-control URL on the screen** (~8 s) |
+
+Every keypress **flashes a confirmation on the screen** (e.g. "🔊 Volume 65%",
+"⏸ Paused", "⟳ Rotate 90°"), so you can see what you pressed.
 
 Keyboard, phone UI and dashboard all stay in sync — a change made on the
 keyboard shows up in the dashboard on the next heartbeat.
+
+> **Tip — finding the phone UI:** press **`i`** on the keyboard and the screen
+> shows `Phone control: http://<ip>:8080`. Open that on a phone connected to the
+> same network (password from your team lead) to control the device without a
+> keyboard.
 
 ### Reading the on-screen overlay
 

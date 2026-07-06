@@ -29,6 +29,7 @@ Key map (printed to the log at startup, and documented in the tech handbook):
   Next    → / 'n' / next-track                   Pause   space / play-pause
   Prev    ← / 'p' / prev-track
 """
+import json
 import logging
 import select
 import socket
@@ -36,6 +37,9 @@ import time
 from pathlib import Path
 
 from player_settings import load_settings, save_settings
+
+DEVICE_ID_FILE = Path("/etc/fleet-client/device-id")
+LOCAL_UI_PORT = 8080
 
 MPV_IPC_SOCKET = "/tmp/fleet-mpv-ipc"
 RESCAN_INTERVAL = 3.0          # seconds — pick up hot-plugged keyboards
@@ -51,32 +55,75 @@ logging.basicConfig(
 log = logging.getLogger("fleet-keyboard")
 
 
-def _mpv(cmd: list) -> None:
-    """Fire-and-forget mpv IPC command (transport actions)."""
+def _mpv(cmd: list):
+    """Send an mpv IPC command; return the first response dict (or None)."""
     try:
         s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         s.settimeout(1.5)
         s.connect(MPV_IPC_SOCKET)
-        import json
         s.sendall((json.dumps({"command": cmd}) + "\n").encode())
+        resp = s.recv(4096).decode(errors="replace")
         s.close()
+        for line in resp.strip().split("\n"):
+            try:
+                d = json.loads(line)
+                if "error" in d or "data" in d:
+                    return d
+            except json.JSONDecodeError:
+                continue
     except Exception as e:
         log.debug(f"mpv IPC failed ({cmd}): {e}")
+    return None
 
 
-# ── Actions ──
+def _osd(text: str, ms: int = 1400):
+    """Flash a message on the screen via mpv's on-screen display."""
+    _mpv(["show-text", text, ms])
+    log.info(text)
+
+
+def _device_ip() -> str:
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        if not ip.startswith(("169.254", "10.42.", "192.168.4")):
+            return ip
+    except Exception:
+        pass
+    try:
+        import subprocess
+        out = subprocess.check_output(["hostname", "-I"], text=True, timeout=5).split()
+        for ip in out:
+            if not ip.startswith(("169.254", "10.42.", "192.168.4")) and "." in ip:
+                return ip
+    except Exception:
+        pass
+    return "no-ip"
+
+
+def _device_id() -> str:
+    try:
+        return DEVICE_ID_FILE.read_text().strip()
+    except Exception:
+        return "pi-unknown"
+
+
+# ── Actions (each flashes on-screen feedback) ──
 
 def _adjust_volume(delta: int):
     s = load_settings()
     new = max(0, min(200, s["volume_pct"] + delta))
     save_settings({"volume_pct": new, "muted": False}, updated_by="keyboard")
-    log.info(f"volume → {new}%")
+    _osd(f"{'🔈' if new == 0 else '🔊'} Volume {new}%")
 
 
 def _toggle_mute():
     s = load_settings()
-    save_settings({"muted": not s["muted"]}, updated_by="keyboard")
-    log.info(f"mute → {not s['muted']}")
+    now_muted = not s["muted"]
+    save_settings({"muted": now_muted}, updated_by="keyboard")
+    _osd("🔇 Muted" if now_muted else "🔊 Unmuted")
 
 
 def _cycle_rotation():
@@ -86,14 +133,38 @@ def _cycle_rotation():
     except ValueError:
         nxt = 0
     save_settings({"rotation": nxt}, updated_by="keyboard")
-    log.info(f"rotation → {nxt}°")
+    _osd(f"⟳ Rotate {nxt}°")
 
 
 def _adjust_duration(delta: int):
     s = load_settings()
     new = max(1, min(3600, s["image_duration_s"] + delta))
     save_settings({"image_duration_s": new}, updated_by="keyboard")
-    log.info(f"slide duration → {new}s")
+    _osd(f"⏱ Slide {new}s")
+
+
+def _next():
+    _mpv(["playlist-next"])
+    _osd("⏭ Next")
+
+
+def _prev():
+    _mpv(["playlist-prev"])
+    _osd("⏮ Previous")
+
+
+def _pause():
+    _mpv(["cycle", "pause"])
+    r = _mpv(["get_property", "pause"])
+    paused = bool(r and r.get("data"))
+    _osd("⏸ Paused" if paused else "▶ Playing")
+
+
+def _show_info():
+    """Show this device's IP + phone-UI URL on screen for 8s so a technician
+    can read it and open the phone control page."""
+    ip = _device_ip()
+    _osd(f"📶  {_device_id()}\nPhone control:  http://{ip}:{LOCAL_UI_PORT}", 8000)
 
 
 def _build_keymap(ec):
@@ -118,14 +189,16 @@ def _build_keymap(ec):
         "KEY_LEFTBRACE": lambda: _adjust_duration(DURATION_STEP),   # '[' slower
         "KEY_RIGHTBRACE": lambda: _adjust_duration(-DURATION_STEP),  # ']' faster
         # transport
-        "KEY_RIGHT": lambda: _mpv(["playlist-next"]),
-        "KEY_N": lambda: _mpv(["playlist-next"]),
-        "KEY_NEXTSONG": lambda: _mpv(["playlist-next"]),
-        "KEY_LEFT": lambda: _mpv(["playlist-prev"]),
-        "KEY_P": lambda: _mpv(["playlist-prev"]),
-        "KEY_PREVIOUSSONG": lambda: _mpv(["playlist-prev"]),
-        "KEY_SPACE": lambda: _mpv(["cycle", "pause"]),
-        "KEY_PLAYPAUSE": lambda: _mpv(["cycle", "pause"]),
+        "KEY_RIGHT": _next,
+        "KEY_N": _next,
+        "KEY_NEXTSONG": _next,
+        "KEY_LEFT": _prev,
+        "KEY_P": _prev,
+        "KEY_PREVIOUSSONG": _prev,
+        "KEY_SPACE": _pause,
+        "KEY_PLAYPAUSE": _pause,
+        # show this device's IP + phone-control URL on screen
+        "KEY_I": _show_info,
     }
     # allow key auto-repeat (value==2) only for volume/duration
     repeatable = {code(n) for n in ("KEY_VOLUMEUP", "KEY_VOLUMEDOWN", "KEY_KPPLUS",
@@ -154,7 +227,8 @@ def main():
 
     keymap, repeatable = _build_keymap(ec)
     log.info("Fleet keyboard control started. Keys: vol ±/mute, r=rotate, "
-             "[ ]=slide slower/faster, ←/→=prev/next, space=pause.")
+             "[ ]=slide slower/faster, ←/→=prev/next, space=pause, i=show IP. "
+             "Each keypress flashes on-screen feedback.")
 
     devices = {}   # path -> InputDevice
     last_scan = 0.0
