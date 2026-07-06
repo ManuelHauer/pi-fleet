@@ -1,14 +1,20 @@
 # Ars Festival Media Fleet — Tech Team Handbook
 
-> Version 0.2 · May 2026
+> Version 0.3 · July 2026
 
 ---
 
 ## Overview
 
-Each exhibition display runs on a **Raspberry Pi** (model 3, 4, or 5) connected to a screen via HDMI. Media (video, audio, images) is delivered to each Pi from a central server over a private Tailscale mesh (Headscale). If a venue has no Wi-Fi, you can still drop media on the Pi via a USB stick — see §6.
+Each exhibition display runs on a **Raspberry Pi** (model 3B+, 4, or 5) connected to a screen via HDMI. Media (video, images, audio) reaches a Pi three ways, and you can mix them freely:
 
-A freshly-installed Pi **never** shows a black screen: it boots into an info card with its device ID, hostname, IP, and the message **"WAITING FOR MEDIA"**. If you can see that card on HDMI, the install worked.
+1. **Server push** — assign files in the central dashboard; the Pi syncs within ~30 s.
+2. **SD card** — the Pi's own SD card has a big **FLEET-MEDIA** partition that shows up on any Mac/Windows laptop. Drop files on it, put it back, boot — done.
+3. **USB stick** — insert a stick with media into a running Pi; it switches within seconds.
+
+SD and USB media **pin** the device: the dashboard shows 💾 or 🔌 and ignores server assignments until you press **Release**.
+
+A freshly-installed Pi **never** shows a black screen: it boots into an info card with its device ID, hostname, IP and **"WAITING FOR MEDIA"**. During Wi-Fi setup the screen shows the setup instructions instead. If you can see a card on HDMI, the install worked.
 
 ---
 
@@ -17,80 +23,60 @@ A freshly-installed Pi **never** shows a black screen: it boots into an info car
 ### What You Need
 - Raspberry Pi (pre-flashed SD card)
 - HDMI cable + display/screen
-- Power supply (USB-C for Pi 4/5, micro-USB for Pi 3)
-- Your phone (for Wi-Fi setup)
+- Power supply (USB-C for Pi 4/5, micro-USB for 3B+)
+- Your phone (only if the card was NOT pre-primed)
 
-### Step-by-Step
+### Zero-touch (pre-primed card)
+If the SD card was prepared with a `fleet-setup.toml` (venue Wi-Fi pre-filled — see §7), there is **nothing to do**: connect HDMI + power, wait ~2 minutes, the Pi joins the venue Wi-Fi and starts playback/idle card by itself.
 
-1. **Connect** HDMI cable to screen, power to Pi.
-2. **Wait ~60 seconds** — the setup screen appears on HDMI:
+### Phone setup (captive portal)
+1. **Connect** HDMI and power.
+2. **Wait ~60 seconds** — the screen shows SETUP MODE with a Wi-Fi name + password, e.g. `AEC-PI-A7F3` / `aecA7F3setup`.
+3. **Connect your phone** to that Wi-Fi network.
+4. The **setup page opens automatically** (if not: `http://10.42.0.1`).
+5. **Pick the venue Wi-Fi** from the list (strongest first) or type its name.
+6. Enter the Wi-Fi password, tap **Connect device**.
+7. Your phone loses the setup network — that's normal. **Watch the screen on the Pi:**
+   - **CONNECTED** → done, playback starts automatically.
+   - **SETUP FAILED** → the setup Wi-Fi comes back; reconnect your phone and try again.
 
-   ```
-   ╔══════════════════════════════════════╗
-   ║  🎬 ARS FESTIVAL MEDIA PLAYER       ║
-   ║       — SETUP MODE —                ║
-   ╠══════════════════════════════════════╣
-   ║  Wi-Fi Network:  AEC-PI-A7F3        ║
-   ║  Password:       aecA7F3setup       ║
-   ╚══════════════════════════════════════╝
-   ```
-
-3. **Connect your phone** to the Wi-Fi network shown (e.g., `AEC-PI-A7F3`).
-4. A **setup page** opens automatically in your browser. If not, go to `http://192.168.4.1`.
-5. **Select the venue Wi-Fi** from the scan list (or enter manually).
-6. **Enter the Wi-Fi password** and a location label (e.g., `Mariendom-05`).
-7. Tap **Connect**.
-8. Wait for **✅ Connected** confirmation on your phone and on the HDMI screen.
-9. **Done.** The Pi will sync media and start playback automatically.
-
-### Fallback: USB Wi-Fi Config
-If the phone portal doesn't work, create a file called `wifi.json` on a USB stick:
+### Fallback: USB Wi-Fi config
+Put a `wifi.json` on a USB stick, plug in, reboot:
 ```json
-{
-  "ssid": "VenueWiFiName",
-  "password": "VenuePassword",
-  "label": "Mariendom-05"
-}
+{ "ssid": "VenueWiFiName", "password": "VenuePassword" }
 ```
-Plug the USB into the Pi and reboot. It will read the credentials automatically.
 
 ---
 
-## 2. Controlling a Device (Volume, Playback)
+## 2. Controlling a Device (Rotation, Slides, Volume)
 
-Each Pi runs a **local control panel** accessible from any device on the same Wi-Fi network.
+Each Pi runs a **local control panel**: open `http://<pi-ip>:8080` on any device in the same network and enter the tech password. The IP is on the idle card; the **Identify** button in the dashboard flashes it on the venue screen.
 
-### Access
-1. Open your phone browser.
-2. Go to `http://<pi-ip-address>:8080` (the IP is shown on the HDMI status screen and in the central dashboard).
-3. Enter the **tech password** (provided by your team lead).
-
-### What You Can Do
-| Action | Description |
+| Control | Description |
 |--------|-------------|
-| 🔊 Volume slider | Adjust playback volume (0–200%) |
-| 🔇 Mute button | Instant mute |
-| ▶ Restart Player | Restart the mpv media loop (does not touch the management daemon) |
-| ⬇ Check for Updates | Force immediate media sync from server |
-| 📺 Show status on screen | Force the on-screen status overlay on for 30 seconds (useful when the offline countdown has already expired) |
-| 📶 Reset Wi-Fi | Clear stored Wi-Fi (triggers setup mode on reboot) |
-| ⟳ Reboot Device | Full device reboot |
+| 🔄 **Screen rotation** | 0° / 90° / 180° / 270° — applies **instantly**, playback keeps running. For screens mounted in portrait. |
+| ⏱ **Slide duration** | Seconds per image in a slideshow (videos always play full length). Applies from the next slide. |
+| 🔊 Volume + mute | 0–200%, persists across reboots |
+| 📺 Show device info on screen | 30-second on-screen badge (device ID + IP) |
+| ▶ Restart player | Restart the mpv loop only |
+| ⬇ Check server for updates | Force immediate media sync |
+| 💾 Play from SD card | Re-import the FLEET-MEDIA partition content |
+| 📶 Reset Wi-Fi | Clear stored Wi-Fi → setup mode on next reboot |
+| ⟳ Reboot device | Full reboot |
 
-Volume settings persist across reboots.
+Rotation and slide duration can **also** be set per device from the central dashboard (Playback settings section in the device panel) — same effect, applied within one heartbeat (~30 s). The dashboard always shows what the device last reported.
 
-### Reading the On-Screen Overlay
-
-Each Pi may briefly draw a small text overlay in the bottom-right of the video:
+### Reading the on-screen overlay
 
 | Overlay | What it means |
 |---|---|
-| `⚠ OFFLINE · no wifi · auto-hide MM:SS` | Pi has no default route. Wi-Fi died at the venue. |
-| `⚠ OFFLINE · no mesh · auto-hide MM:SS` | Wi-Fi is up but Tailscale won't connect (Headscale unreachable or authkey expired). |
-| `⚠ OFFLINE · no server · auto-hide MM:SS` | Mesh is up but the server is unreachable (e.g. server box is rebooting). |
-| `✓ CONNECTED` (flash, ~5s) | Pi just reconnected to the server. |
-| `🔌 Pinned to USB media` (in the local UI banner) | Device is showing USB content; dashboard pushes are ignored until you Release. |
+| `⚠ OFFLINE · no wifi · auto-hide MM:SS` | Pi has no network route — venue Wi-Fi died. |
+| `⚠ OFFLINE · no mesh · auto-hide MM:SS` | Wi-Fi up, Tailscale mesh down (only on mesh deployments). |
+| `⚠ OFFLINE · no server · auto-hide MM:SS` | Network up but the fleet server is unreachable. |
+| `✓ CONNECTED` (5 s flash) | Pi just reconnected. |
+| `◉ pi-xxxx · hostname · IP` | Someone pressed Identify. |
 
-The offline overlay auto-hides after 5 minutes and won't reappear until the **next** offline episode. To force it on again, open `:8080` and press **📺 Show status on screen**.
+Playback continues through all of this — offline just means "no new content until reconnect". The overlay auto-hides after 5 minutes per offline episode.
 
 ---
 
@@ -99,171 +85,118 @@ The offline overlay auto-hides after 5 minutes and won't reappear until the **ne
 ### Video
 | Format | Extension | Notes |
 |--------|-----------|-------|
-| H.264/MP4 | `.mp4` | ✅ Recommended. Best hardware decode support on all Pi models. |
-| H.265/HEVC | `.mp4`, `.mkv` | ⚠ Pi 4/5 only. Pi 3 may struggle. |
-| AVI | `.avi` | ✅ Supported |
-| MKV | `.mkv` | ✅ Supported |
-| WebM/VP9 | `.webm` | ⚠ Software decode only — may drop frames at high res on Pi 3. |
-| MOV | `.mov` | ✅ Supported |
+| H.264/MP4 | `.mp4` | ✅ Recommended. Best hardware decode on all Pi models. |
+| H.265/HEVC | `.mp4`, `.mkv` | ⚠ Pi 4/5 only. |
+| MKV / MOV / AVI / WebM | `.mkv` `.mov` `.avi` `.webm` | ✅ Supported (WebM = software decode; avoid on Pi 3B+) |
 
-### Recommended Video Settings
-| Setting | Recommendation |
-|---------|---------------|
-| Resolution | **1920×1080 (1080p)** — recommended for all Pi models |
-| | 3840×2160 (4K) — Pi 4/5 only, H.265 codec required |
-| Frame rate | 24–30 fps (60 fps possible on Pi 4/5 at 1080p) |
-| Bitrate | 5–15 Mbps for 1080p, 20–40 Mbps for 4K |
-| Codec | **H.264** (broadest support) or H.265 (Pi 4/5 only) |
-
-### Audio
-| Format | Extension | Notes |
-|--------|-----------|-------|
-| MP3 | `.mp3` | ✅ Recommended |
-| WAV | `.wav` | ✅ Lossless — larger files |
-| FLAC | `.flac` | ✅ Lossless compressed |
-| OGG Vorbis | `.ogg` | ✅ Supported |
-| AAC | `.aac` | ✅ Supported |
-
-> **Audio-only behavior:** When a device receives only audio files (no video or images), the HDMI screen displays the **Ars Electronica logo** centered on a black background while audio plays.
+**Recommended:** 1920×1080, H.264, 24–30 fps, 5–15 Mbps. 4K only on Pi 4/5 with H.265.
 
 ### Images
-| Format | Extension | Notes |
-|--------|-----------|-------|
-| JPEG | `.jpg`, `.jpeg` | ✅ Recommended for photos |
-| PNG | `.png` | ✅ Supported — larger files |
-| BMP | `.bmp` | ✅ Supported |
-| GIF | `.gif` | ✅ Static display (no animation) |
-| WebP | `.webp` | ✅ Supported |
+`.jpg` `.png` `.webp` `.bmp` `.gif` (static) — 1920×1080 recommended (or 1080×1920 for portrait screens; alternatively upload landscape and set rotation).
 
-### Recommended Image Settings
-| Setting | Recommendation |
-|---------|---------------|
-| Resolution | 1920×1080 pixels (match display) |
-| | Up to 3840×2160 for 4K displays |
-| Display duration | 10 seconds per image (configurable) |
+### Audio
+`.mp3` `.wav` `.flac` `.ogg` `.aac`
+
+> Non-media files on sticks/SD cards (`README.txt`, `fleet-setup.toml`, …) are ignored by the player — safe to keep them next to the content.
 
 ---
 
 ## 4. Central Dashboard
 
-The central dashboard shows all devices and their status at a glance.
+- URL: provided by your team lead (e.g. `https://fleet.example.org/dashboard/`)
+- Works on desktop **and phone**; login with the admin credentials.
 
-### Access
-- URL: provided by your team lead (e.g., `https://fleet.yourdomain.com/dashboard/`)
-- Login: admin credentials (username + password)
+**Devices tab** — every Pi as a card: green/red online dot, state badge (`playing`, `offline·playing`, `no media`), pin badge (🔌 USB / 💾 SD), rotation/slide/volume at a glance. Filter by group (venue). Tap a card for the device panel:
+- **Info** — ID, IP, model, last seen, content version
+- **Name & venue** — label, group, venue text
+- **Playback settings** — rotation, slide duration, volume/mute (pushed live)
+- **Assigned media** — list, remove, assign more
+- **Actions** — Identify (30 s on-screen badge), restart player, sync now, play from SD, reboot
+- **Release** button when pinned
 
-### Features
-- **Device list** — all Pis with online/offline status, group, IP, last seen
-- **Device detail** — CPU temperature, disk space, VLC status, current media version, heartbeat history
-- **Remote commands** — update now, restart VLC, health probe, reboot
-- **Media library** — upload/delete media files
-- **Manifests** — publish media versions to device groups
-
-### Device Groups
-Devices are organized by **group** (typically one per venue):
-- `mariendom`
-- `aec-center`
-- `ok-platz`
-- `art-university`
-- etc.
-
-You can publish different media to different groups.
+**Media tab** — drag & drop upload (multiple files at once, progress bars), library with per-file assignment counts, assign to any set of devices (tap a group name to select the whole venue).
 
 ---
 
-## 5. Uploading Media
+## 5. Getting Artist Media Onto Devices (Server Path)
 
-1. Open the central dashboard.
-2. Click **📁 Media** tab.
-3. Click **⬆ Upload Media Files** and select your files.
-4. After upload, click **📋 Manifests** tab.
-5. Select the target **group** (venue).
-6. Check the files you want in the playlist.
-7. Click **📋 Publish Manifest**.
-8. Devices in that group will pick up the new media on their next sync cycle (default: every 12 hours, or use "Update Now" for immediate).
+1. Download the file from the PM's SharePoint folder (see `docs/media-workflow.md`).
+2. Dashboard → **Media** → drop the file(s) into the upload zone.
+3. Click **assign** on the file → tick the target devices (or tap a group name for the whole venue) → **Assign**.
+4. Devices sync within ~30 s (online ones). The device panel shows the new version.
+
+No manifest publishing step anymore — assignments generate the manifests automatically.
 
 ---
 
 ## 6. Updating Content via USB Stick
 
-Insert a FAT32 USB stick with either:
+Insert a USB stick (FAT32/exFAT) with media at the root or in a `fleet/` folder into a **running** Pi. Within ~10 seconds the content is copied, atomically activated, and the device is **pinned** (🔌 in the dashboard, ignores server pushes until **Release**).
 
-- Media files directly at the root, **or**
-- A `fleet/` subfolder containing the media
-
-…into a running Pi. Within ~10 seconds:
-
-1. The stick is mounted read-only.
-2. Files are copied into a hashed release dir (`releases/usb-<hash12>`).
-3. The `current` symlink is atomically swapped.
-4. The player reloads with the new content.
-5. **The device becomes "pinned"** — dashboard pushes are ignored until you Release.
-
-In the dashboard the device will show a purple **🔌** icon next to its name and a **Release** button in the detail panel. Click Release when you want the device to start picking up dashboard manifests again.
-
-Re-inserting the **same** stick is a no-op (idempotent). Re-inserting a stick with **different** content does an atomic swap to the new content; the device stays pinned.
-
-> Use case at the festival: artist arrives at the opening with last-minute edits → tech walks the room with a USB stick → all kiosks updated within a minute, no dashboard touch required.
+- Same stick again = no-op. Different content = clean swap, stays pinned.
+- Use case: artist arrives with last-minute edits → walk the room with one stick.
 
 ---
 
-## 7. Troubleshooting
+## 7. SD Card: Media + Pre-Configuration  *(new in v0.3)*
 
-### Pi shows `⚠ OFFLINE · no wifi`
-Wi-Fi died. Check the access point / router at the venue. Once Wi-Fi recovers the Pi will flash `✓ CONNECTED` and resume normal polling.
+Every fleet SD card has a big **FLEET-MEDIA** partition (exFAT) that mounts on any Mac or Windows laptop — no special software.
 
-### Pi shows `⚠ OFFLINE · no mesh`
-Wi-Fi is up but the Tailscale mesh isn't. Either the per-SD authkey expired (re-flash SD) or Headscale is down (check with team lead).
+### Load media directly onto the card
+1. Power off the Pi, take the SD card, put it in your laptop.
+2. Open the **FLEET-MEDIA** volume, drop media files in the top folder (no subfolders).
+3. Eject cleanly, card back into the Pi, power on.
+4. The Pi detects the changed content and plays it (pinned 💾, zero copying — the whole partition size is usable).
 
-### Pi shows `⚠ OFFLINE · no server`
-Mesh is fine, but the server isn't responding. Check the Mac mini at HQ.
+Editing files on the card later (add/remove/replace) is detected on every boot and every ~30 s while running.
 
-### Pi shows the "WAITING FOR MEDIA" idle card
-The Pi has no media. Either no manifest has been published to its group yet, or the device hasn't pulled it. Try **Update Now** in the dashboard or **⬇ Check for Updates** in the local UI.
+### Pre-prime a card for a venue (`fleet-setup.toml`)
+Copy `deploy/fleet-setup.example.toml` to the FLEET-MEDIA partition (or bootfs) as `fleet-setup.toml` and fill in:
+- `[wifi]` — venue SSID/password → the Pi joins by itself, **no phone setup at the venue**
+- `[device]` — label + group so it appears correctly named in the dashboard
+- `[player]` — rotation / slide duration / volume presets
+- `[server]` — only if this card should talk to a non-default server
 
-### Pi shows a 🔌 in the dashboard but I want the dashboard content
-The device is pinned to a USB-inserted release. Click **Release** in the detail panel.
+The file is applied once per content change (editing it re-applies). **Treat prepared cards like keys to the venue Wi-Fi.**
 
-### Generic troubleshooting
+---
+
+## 8. Troubleshooting
 
 | Problem | Solution |
 |---------|----------|
-| Pi shows setup screen after successful Wi-Fi setup | Check that venue Wi-Fi is working. Reboot Pi and try again. |
-| No media playing and no idle card either | mpv may have crashed. Press **▶ Restart Player** in the local UI; if that doesn't fix it, reboot. |
-| Audio too loud/quiet | Use local control panel (`http://<ip>:8080`) to adjust volume. |
-| Pi offline in dashboard | Check power and Wi-Fi. Pi may have lost Wi-Fi connection — visit device physically and check HDMI screen for status. |
-| Media not updating | Default sync every 30s. Use **Update Now** from dashboard or local control for immediate sync. If device is pinned, click **Release** first. |
-| Wrong media on device | Check device group assignment in dashboard. Ensure correct manifest is published for that group. |
-| Multiple Pis on same network | Each Pi has a unique hostname shown on its idle screen and in the dashboard. Use the IP address to access each one. |
-| "What's wrong with this Pi?" | SSH (tailnet) into the Pi and run `sudo /opt/fleet-client/diag.sh` for a one-shot health dump. |
+| `⚠ OFFLINE · no wifi` | Venue Wi-Fi died. Check router/AP. Pi resumes by itself. |
+| `⚠ OFFLINE · no server` | Network fine, server down/unreachable — escalate to team lead. |
+| Setup screen reappears after setup | Venue Wi-Fi credentials failed. Redo phone setup; check password. |
+| "WAITING FOR MEDIA" idle card | Nothing assigned yet (and no SD/USB media). Assign in dashboard or use **Sync now**. |
+| Pinned 💾/🔌 but I want dashboard content | **Release** in the device panel. |
+| SD media not playing after card edit | Check files are in the TOP folder of FLEET-MEDIA, supported formats; then local UI → **Play from SD card**. |
+| Screen is portrait but video is sideways | Set rotation 90°/270° in dashboard device panel or local UI. |
+| Slides flip too fast/slow | Slide duration in dashboard device panel or local UI. |
+| No picture at all | mpv may have crashed → **Restart player**; else reboot; else re-seat HDMI. |
+| Which Pi is which? | **Identify** in the dashboard → 30 s badge on the venue screen. |
+| "What's wrong with this Pi?" | SSH in and run `sudo /opt/fleet-client/diag.sh` — one-shot health dump. |
 
 ---
 
-## 8. Security
+## 9. Security
 
-- **Central dashboard:** protected by admin username + password (or Bearer token).
-- **Local device control:** protected by shared tech team password.
-- **Device ↔ server communication:** authenticated via pre-shared device key.
-- All passwords should be changed from defaults before festival deployment.
-
-### Default Credentials (CHANGE BEFORE DEPLOYMENT)
-| System | Default |
-|--------|---------|
-| Dashboard admin | `admin` / `aec2026!` |
-| Local device control | `aec2026` |
-| Device PSK | `aec-device-psk-2026` |
+- Dashboard: admin username + password (JWT session).
+- Local device control: shared tech password.
+- Device ↔ server: pre-shared device key over HTTPS (and/or Tailscale mesh).
+- **All defaults must be changed before deployment** — the SD prep script and server installer warn about / generate proper secrets.
+- The remote-shell command is disabled by default on the packaged server deployment (`FLEET_DISABLE_SHELL=1`).
 
 ---
 
-## 9. Quick Reference Card
+## 10. Quick Reference Card
 
 ```
-Setup:    Connect Pi → HDMI shows AP → Phone connects → Enter Wi-Fi → Done
-Control:  http://<pi-ip>:8080 → password → volume/restart/update
-Dashboard: https://<server>/dashboard/ → admin login → devices/media/manifests
-Media:    MP4 (H.264, 1080p) recommended · MP3/WAV for audio · JPG/PNG for images
+Zero-touch:  pre-primed card → power on → wait → playing
+Phone setup: HDMI shows AP name+pass → connect phone → http://10.42.0.1 → pick Wi-Fi
+Control:     http://<pi-ip>:8080 → rotation / slides / volume / restart
+Dashboard:   https://<server>/dashboard/ → devices + media, works on phone
+SD media:    FLEET-MEDIA volume on any laptop → drop files → boot Pi
+USB media:   stick into running Pi → plays + pins within seconds
+Formats:     MP4 H.264 1080p · JPG/PNG · MP3/WAV
 ```
-
----
-
-*Questions? Contact: arstable@screenart.dev*

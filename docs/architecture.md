@@ -1,129 +1,120 @@
-# Pi Fleet Architecture — v0.2
+# Pi Fleet Architecture — v0.3
 
 ## Components
 
-- **Fleet Server (Mac mini at HQ)**
-  - FastAPI + SQLite (device registry, manifests, commands, heartbeats, pin state)
-  - Media file hosting (local filesystem)
-  - Admin endpoints (HTTP Basic / Bearer)
-  - Dashboard (static SPA served from `/dashboard/`)
-  - Reachable from the fleet only via its tailnet IP (Headscale mesh).
-
-- **Headscale (Hetzner VPS)**
-  - Self-hosted Tailscale coordination server.
-  - Mints single-use, ephemeral preauth keys at SD-prep time.
-  - Server + Pis communicate only over tailnet addresses.
+- **Fleet Server** — `server/`
+  - FastAPI + SQLite (device registry, manifests, commands, heartbeats,
+    pin state, playback settings), media file hosting, admin API.
+  - Dashboard (static single-file SPA) served at `/dashboard/`.
+  - Deployment: docker-compose + Caddy auto-TLS, or bare-metal systemd —
+    see `deploy/server/` and `docs/server-hosting-qa.md`.
+  - Reachability model: devices poll **outbound HTTPS** — a public HTTPS
+    endpoint is sufficient. The Tailscale/Headscale mesh from v0.2 remains
+    supported but is now **optional** (`no mesh` diagnostics only appear
+    when tailscale is installed).
 
 - **Fleet Player (Pi)** — `client/fleet_player.py`, `fleet-player.service`
   - Owns the mpv lifecycle (DRM/KMS, ALSA, IPC socket).
-  - Reads `/opt/fleet-media/playlist.current` to know what to play.
-  - Reads `/opt/fleet-media/osd.json` to draw overlays.
-  - Watches `/opt/fleet-media/.restart-player` mtime to force reload.
-  - Renders the idle info-card PNG when no playlist is available.
+  - Reads `playlist.current` (what to play), `osd.json` (overlay),
+    `player-settings.json` (rotation / image duration / volume / mute —
+    **applied live via mpv IPC, no playback restart**),
+    `.restart-player` (mtime = reload).
+  - Renders the idle info-card; shows the onboarding setup card while
+    `.onboarding-active` exists (setup instructions render THROUGH the
+    player — v0.2 wrote to tty1, which mpv's DRM plane covered).
 
 - **Fleet Client (Pi)** — `client/fleet_client.py`, `fleet-client.service`
-  - Management daemon. Does **not** own mpv.
-  - Fast loop (10s): cheap `HEAD /health` probe of the server.
-  - Slow loop (30s): manifest poll + heartbeat (skips manifest when pinned).
-  - On manifest update: atomic symlink swap → write `playlist.current` →
-    touch `.restart-player`. That's the whole handoff to the player.
-  - Maintains `osd.json` per the OSD rules (offline countdown / connected flash).
-  - Persists derived state into `state.json` for the local UI and diag.sh.
+  - Management daemon. Fast loop (10 s): `HEAD /health` probe. Slow loop
+    (30 s, jittered): manifest poll + heartbeat + SD-partition scan —
+    **in every state, including NO_MEDIA** (v0.2 bug: idle devices went
+    silent and could never receive their first assignment).
+  - Manifest update: download + sha256 verify → atomic symlink swap →
+    write playlist → touch restart trigger.
+  - Heartbeat carries pin state, derived state, IP and current playback
+    settings; response delivers queued commands
+    (`set_settings`, `identify`, `play_sd`, `update_now`, `player_restart`,
+    `unpin`/`force_poll`, `health_probe`, `reboot`[, `shell` if enabled]).
 
-- **Local Control UI (Pi)** — `client/local_control.py`, `fleet-local-control.service`
-  - Flask app on `:8080`.
-  - Shows pinned banner, derived state, offline reason.
-  - Buttons: restart player, check for updates, force-show 30-s status overlay,
+- **Local Control UI (Pi)** — `client/local_control.py`, port 8080
+  - Phone-first, works fully offline: rotation, slide duration,
+    volume/mute, identify, restart player, sync now, play-from-SD,
     Wi-Fi reset, reboot.
 
-- **Onboarding (Pi)** — `client/onboarding/*`, `fleet-onboard.service`
-  - Runs once on first boot if no Wi-Fi credentials.
-  - Brings up AP + captive portal + HDMI status.
-  - After Wi-Fi joins, calls `tailscale up` with the per-SD authkey
-    (non-fatal: Pi boots even if mesh join fails).
+- **Onboarding (Pi)** — `client/onboarding/`, `fleet-onboard.service`
+  - **NetworkManager-native** (nmcli): venue profile with autoconnect,
+    onboarding hotspot via NM shared mode (10.42.0.1), captive-portal DNS
+    wildcard via `dnsmasq-shared.d`. (v0.2 wrote `wpa_supplicant.conf`,
+    which Pi OS Bookworm/Trixie ignores.)
+  - Boot order: `fleet-setup.toml` preseed → existing venue profile →
+    USB `wifi.json` → captive portal (scans BEFORE the AP claims the
+    radio; serves the cached list; async connect with progress page;
+    **no timeout** — and it no longer blocks the other services).
+  - Optional Tailscale join stays non-fatal.
 
-## State Machine (derived, not stored)
+## Media sources & the pin model
 
 ```
-                          ┌──────────────┐
-                          │  ONBOARDING  │  (first boot only; until onboard-done exists)
-                          └──────┬───────┘
-                                 ▼
-                ┌────────────────────────────────┐
-                │   compute_state() each tick    │
-                │   inputs:                      │
-                │     - has current symlink?     │
-                │     - server reachable?        │
-                │     - pinned?                  │
-                └──────┬──────────┬──────────────┘
-                       │          │
-              has_media│          │no current
-                       ▼          ▼
-              ┌────────────┐   ┌──────────┐
-   reachable  │ PLAYING_   │   │ NO_MEDIA │
-       ◄──────│ CONNECTED  │   │ (idle    │
-              │            │   │  screen) │
-              └─────▲──────┘   └──────────┘
-                    │
-                    │unreachable
-                    ▼
-              ┌──────────────────┐
-              │ PLAYING_OFFLINE  │  ← OSD countdown 5m, then quiet
-              └──────────────────┘
+                 ┌──────────────┐
+   dashboard ───▶│ fleet server │──── manifest poll ───▶ releases/<version>/
+                 └──────────────┘                            │ symlink swap
+                                                             ▼
+   USB stick ── udev → usb_sync.sh ── copy+hash ──▶ /opt/fleet-media/current
+                                                             ▲
+   SD card ("FLEET-MEDIA" exFAT partition) ── zero-copy ─────┘
+            fleet_client scans boot + every 30 s
 ```
 
-`offline_reason` is a cheap-to-specific drill-down: `no wifi` → `no mesh` → `no server`.
+- USB insert or SD content change → atomic swap + **pin**
+  (`pinned_source: usb | sdcard`). Pinned devices heartbeat normally but
+  skip manifest polls; the dashboard shows 🔌/💾 + Release.
+- Release (dashboard) → `force_poll` command → local pin cleared → server
+  manifest swaps back in. SD re-import only triggers again when the card
+  content actually changes (or via "Play from SD").
+- Playlists filter to playable extensions — `fleet-setup.toml`,
+  `DROP-MEDIA-HERE.txt` etc. can live next to the media.
 
-## Data flow: dashboard-pushed manifest
+## Playback settings flow
 
-1. Admin uploads media to server, publishes a manifest for a group.
-2. `fleet_client` polls `/device/manifest/<id>` (falls back to `/manifest/<group>`).
-3. If `version` differs from local `state.json["current_version"]`:
-   - Download missing files to `releases/<version>/`, verify sha256.
-   - `ln -sfn releases/<version> current.new && mv -T current.new current`
-   - Write `playlist.current`, touch `.restart-player`.
-4. `fleet_player` sees mtime change → terminates mpv → starts new mpv on new playlist.
-5. `fleet_client` posts heartbeat (now including pin fields).
+```
+dashboard ── PUT /admin/devices/{id}/settings ──▶ set_settings command
+                                                       │ (next heartbeat)
+local UI  ── writes ─────────────┐                     ▼
+                                 ├──▶ player-settings.json ──▶ fleet_player
+fleet-setup.toml [player] ── once┘         (mtime watch)        applies live
+                                                                via mpv IPC
+device heartbeat ◀── reports applied settings ── (dashboard shows truth)
+```
 
-## Data flow: USB pin
+Last writer wins; the server only pushes when an admin acts, so local and
+remote edits don't fight.
 
-1. Tech inserts USB stick. Udev fires `usb_sync.sh`.
-2. Stick is mounted read-only into a private mktemp dir.
-3. Script finds a `fleet/` dir or root media; otherwise silently exits.
-4. Content hash → release ID `usb-<hash12>`. New release dir is created
-   `releases/usb-<hash>.tmp`, then atomically renamed to `releases/usb-<hash>`.
-5. Atomic symlink swap of `current`.
-6. `state.json` updated: `pinned=true, pinned_source="usb", pinned_at=<epoch>`.
-7. `playlist.current` rewritten, `.restart-player` touched.
-8. `fleet_client` heartbeats include the pin → server marks device pinned
-   → dashboard shows `🔌` + Release button.
-9. Manifest polls are skipped (client-side) until pin is cleared.
+## SD card layout (created at first boot by `setup_media_partition.sh`)
 
-## Data flow: dashboard "Release" button
+```
+p1  bootfs       FAT32   512 MB   fleet code + fleet-boot-config.json (+ preseed)
+p2  rootfs       ext4    ~8 GB    OS + /opt/fleet-media/releases
+p3  FLEET-MEDIA  exFAT   rest     media drop zone + optional fleet-setup.toml
+```
 
-1. Admin clicks Release. Dashboard POSTs `/admin/devices/<id>/unpin`.
-2. Server clears `pinned=0` and queues a `force_poll` command for the device.
-3. On next heartbeat, `fleet_client` picks up the command, clears local
-   `state.json["pinned"]`, immediately runs `_poll_manifest()`.
+`prepare_sd_card.sh` disables the Pi OS auto-expand; the partition surgery
+happens on-Pi because laptops lack ext4 tools. Cards too small for p3 fall
+back to full-card rootfs.
+
+## State machine (derived, not stored — unchanged from v0.2)
+
+`NO_MEDIA | PLAYING_CONNECTED | PLAYING_OFFLINE`, recomputed every tick from
+`(current symlink exists, server reachable, pinned)`. Offline reason drill-down
+`no wifi → no mesh (only if tailscale installed) → no server`. OSD: 5-min
+countdown per offline episode, ✓ flash on reconnect, identify badge on demand.
 
 ## Failure modes
 
 | Failure | Behavior |
 |---|---|
-| Server unreachable | `fleet_client` stays in `PLAYING_OFFLINE` if media is on disk, otherwise `NO_MEDIA` idle screen. mpv keeps looping last good content. |
-| Partial download / checksum mismatch | Staging dir is removed; no symlink change; client keeps current playback. |
-| mpv crash | `fleet-player.service` restarts mpv within seconds (`Restart=always`). `fleet-client` is untouched. |
-| Tailscale fails to join | Onboarding still completes (`onboard-done` is written). Pi runs in offline mode, can still serve USB-pinned media. |
-| SD card cloning | Identity is derived from SoC serial, so each Pi registers as itself regardless of shared image. |
-| Wi-Fi never available at venue | Pi stays in `NO_MEDIA` until USB stick arrives → then runs offline as a kiosk indefinitely. |
-
-## Command set
-
-| Command | Effect on client |
-|---|---|
-| `update_now` | Force `_poll_manifest()` regardless of timing. |
-| `vlc_restart` / `player_restart` | Touch `.restart-player` so fleet_player reloads mpv. |
-| `unpin` / `force_poll` | Clear local pin state, then `_poll_manifest()`. |
-| `health_probe` | Return current health stats. |
-| `reboot` | `sudo reboot`. |
-| `shell` | (lab only) run arbitrary shell, return first 500 chars. |
+| Server unreachable | Playback continues from disk; `PLAYING_OFFLINE` + OSD countdown. |
+| Partial/corrupt download | Staging dir discarded; current playback untouched. |
+| mpv crash | `Restart=always` revives it in seconds; management daemon unaffected. |
+| First boot without network | Retrying installer unit runs again next boot (v0.2's one-shot hook silently gave up). |
+| Venue has no Wi-Fi | Zero-config USB/SD kiosk; onboarding portal waits forever without blocking playback. |
+| SD cloned to many cards | Identity from SoC serial — no collisions. |
+| Settings change mid-show | Applied live via IPC; no black frame. |
