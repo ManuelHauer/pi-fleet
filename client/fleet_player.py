@@ -184,7 +184,7 @@ def render_idle_screen() -> bool:
     draw.text((W - tw - 40, H - 60), foot, fill=(136, 136, 160), font=f_foot)
 
     tmp = IDLE_IMAGE.with_suffix(".png.tmp")
-    img.save(tmp)
+    img.save(tmp, format="PNG")  # explicit — PIL can't infer format from ".tmp"
     tmp.rename(IDLE_IMAGE)
     log.info(f"Idle screen rendered ({device_id} / {hostname} / {ip})")
     return True

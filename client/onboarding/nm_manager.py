@@ -147,6 +147,21 @@ def _wait_for_ip(timeout_sec: int) -> bool:
     return False
 
 
+def has_any_wifi_profile() -> bool:
+    """Any Wi-Fi connection profile at all (venue, 'preconfigured' from the
+    imager/first-boot preseed, or a manually-added one) — NOT just fleet-venue."""
+    rc, out = _nmcli(["-t", "-f", "TYPE", "con", "show"], timeout=15)
+    return rc == 0 and any(t in ("802-11-wireless", "wifi") for t in out.splitlines())
+
+
+def wait_online(timeout_sec: int = 45) -> str:
+    """Give NetworkManager time to auto-connect an existing Wi-Fi profile after
+    boot before onboarding decides to raise the setup AP. Returns the IP if it
+    comes up, else ''. Prevents the race where onboarding starts the hotspot on
+    wlan0 microseconds before NM would have connected the venue Wi-Fi."""
+    return get_ip() if _wait_for_ip(timeout_sec) else ""
+
+
 def write_venue_profile(ssid: str, password: str, hidden: bool = False) -> bool:
     """Create/replace the venue Wi-Fi profile (autoconnect on every boot)."""
     _nmcli(["con", "delete", VENUE_CON], timeout=15)  # ignore result

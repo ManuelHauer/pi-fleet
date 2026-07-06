@@ -86,7 +86,7 @@ def _render(title, title_color, lines, footer=""):
 
     SYSTEM_DIR.mkdir(parents=True, exist_ok=True)
     tmp = SETUP_IMAGE.with_suffix(".png.tmp")
-    img.save(tmp)
+    img.save(tmp, format="PNG")  # explicit — PIL can't infer format from ".tmp"
     tmp.rename(SETUP_IMAGE)
 
 
