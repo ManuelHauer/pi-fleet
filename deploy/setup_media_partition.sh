@@ -122,6 +122,14 @@ fi
 resize2fs "$P2"
 log "rootfs resized"
 
+# exfatprogs may not be installed yet (this script runs BEFORE the main apt
+# block, so growing rootfs frees the space apt needs). Now that rootfs has
+# room, pull in mkfs.exfat on demand.
+if ! command -v mkfs.exfat >/dev/null 2>&1; then
+  log "installing exfatprogs (for FLEET-MEDIA format)…"
+  DEBIAN_FRONTEND=noninteractive apt-get install -y exfatprogs >/dev/null 2>&1 \
+    || { log "ERROR: could not install exfatprogs — leaving p3 unformatted"; exit 1; }
+fi
 mkfs.exfat -L "$LABEL" "$P3"
 log "$P3 formatted as exFAT ($LABEL)"
 
