@@ -2,974 +2,726 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Ars Fleet — Media Orchestration Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Ars Fleet — Dashboard</title>
 <style>
   :root {
-    --bg: #0a0a0f; --surface: #141420; --surface2: #1c1c2e;
-    --border: #2a2a3e; --text: #e0e0e8; --text2: #8888a0;
-    --accent: #6c5ce7; --accent2: #a29bfe; --green: #00b894;
-    --red: #ff6b6b; --orange: #fdcb6e; --blue: #74b9ff;
+    --bg:#0b0b12; --card:#15151f; --card2:#1b1b28; --line:#272736; --ink:#e8e8f0;
+    --dim:#8f8fa8; --accent:#7c6cf0; --accent-soft:rgba(124,108,240,.15);
+    --ok:#3ddc84; --warn:#ffb020; --bad:#ff6b6b; --pin:#b28dff;
   }
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro', 'Segoe UI', system-ui, sans-serif;
-    background: var(--bg); color: var(--text); overflow: hidden; height: 100vh;
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body { font-family:-apple-system,system-ui,"Segoe UI",sans-serif; background:var(--bg);
+         color:var(--ink); min-height:100vh; }
+  button { font-family:inherit; }
+  input, select { font-family:inherit; }
+
+  /* ── Login ── */
+  .login-wrap { min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px; }
+  .login-card { background:var(--card); border:1px solid var(--line); border-radius:16px;
+                padding:34px; width:100%; max-width:380px; text-align:center; }
+  .login-card h1 { font-size:22px; margin:10px 0 4px; }
+  .login-card .sub { color:var(--dim); font-size:13px; margin-bottom:26px; }
+  .login-card input { width:100%; padding:14px; border:1px solid var(--line); border-radius:10px;
+                      background:#10101a; color:var(--ink); font-size:16px; outline:none; margin-bottom:12px; }
+  .login-card input:focus { border-color:var(--accent); }
+  .login-card .btn-primary { width:100%; margin-top:8px; }
+  .login-err { color:var(--bad); font-size:13px; margin-bottom:10px; min-height:16px; }
+
+  /* ── App shell ── */
+  #app { display:none; max-width:1280px; margin:0 auto; padding:0 16px calc(90px + env(safe-area-inset-bottom)); }
+  header { display:flex; align-items:center; gap:14px; flex-wrap:wrap; padding:18px 0 12px; }
+  header h1 { font-size:19px; font-weight:700; margin-right:auto; }
+  header h1 .v { color:var(--dim); font-size:11px; font-weight:400; margin-left:6px; }
+  .chips { display:flex; gap:8px; flex-wrap:wrap; }
+  .chip { padding:5px 12px; border-radius:999px; font-size:12px; font-weight:600;
+          border:1px solid var(--line); background:var(--card); color:var(--dim); }
+  .chip b { color:var(--ink); }
+  .chip.c-on b { color:var(--ok); } .chip.c-off b { color:var(--bad); } .chip.c-pin b { color:var(--pin); }
+
+  .toolbar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; padding:6px 0 14px; }
+  .tabs { display:flex; background:var(--card); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  .tabs button { padding:10px 22px; border:none; background:none; color:var(--dim);
+                 font-size:14px; font-weight:600; cursor:pointer; }
+  .tabs button.active { background:var(--accent); color:#fff; }
+  select.groupsel { padding:10px 12px; border:1px solid var(--line); border-radius:10px;
+                    background:var(--card); color:var(--ink); font-size:14px; outline:none; }
+  .spacer { flex:1; }
+  .icon-btn { padding:10px 14px; border:1px solid var(--line); border-radius:10px; background:var(--card);
+              color:var(--dim); font-size:13px; cursor:pointer; }
+  .icon-btn:hover { color:var(--ink); border-color:var(--accent); }
+
+  /* ── Device grid ── */
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(300px, 1fr)); gap:14px; }
+  .dev { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px;
+         cursor:pointer; transition:border-color .15s; }
+  .dev:hover { border-color:var(--accent); }
+  .dev-head { display:flex; align-items:center; gap:10px; }
+  .dot { width:10px; height:10px; border-radius:50%; flex:0 0 auto; }
+  .dot.on { background:var(--ok); box-shadow:0 0 8px rgba(61,220,132,.6); }
+  .dot.off { background:var(--bad); }
+  .dev-name { font-weight:700; font-size:15px; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .badge { font-size:11px; padding:3px 9px; border-radius:999px; font-weight:600; flex:0 0 auto; }
+  .badge.pin { background:rgba(178,141,255,.15); color:var(--pin); border:1px solid rgba(178,141,255,.4); }
+  .badge.state-PLAYING_CONNECTED { background:rgba(61,220,132,.12); color:var(--ok); }
+  .badge.state-PLAYING_OFFLINE { background:rgba(255,176,32,.12); color:var(--warn); }
+  .badge.state-NO_MEDIA { background:#22222e; color:var(--dim); }
+  .dev-sub { color:var(--dim); font-size:12px; margin:7px 0 10px; font-family:ui-monospace,monospace;
+             overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .dev-meta { display:flex; gap:14px; flex-wrap:wrap; font-size:12px; color:var(--dim); }
+  .dev-meta span b { color:var(--ink); font-weight:600; }
+  .empty-hint { grid-column:1/-1; text-align:center; color:var(--dim); padding:60px 20px; line-height:1.7; }
+
+  /* ── Media view ── */
+  .dropzone { border:2px dashed var(--line); border-radius:14px; padding:34px 20px; text-align:center;
+              color:var(--dim); font-size:14px; margin-bottom:16px; cursor:pointer; transition:.15s; }
+  .dropzone.drag { border-color:var(--accent); background:var(--accent-soft); color:var(--ink); }
+  .upload-row { display:flex; align-items:center; gap:10px; background:var(--card); border:1px solid var(--line);
+                border-radius:10px; padding:10px 14px; margin:6px 0; font-size:13px; }
+  .upload-row .bar { flex:1; height:6px; background:#23232f; border-radius:3px; overflow:hidden; }
+  .upload-row .bar i { display:block; height:100%; background:var(--accent); width:0%; transition:width .2s; }
+  .media-table { width:100%; border-collapse:collapse; }
+  .media-table th { text-align:left; font-size:11px; color:var(--dim); text-transform:uppercase;
+                    letter-spacing:.5px; padding:10px 8px; border-bottom:1px solid var(--line); }
+  .media-table td { padding:12px 8px; border-bottom:1px solid #1d1d2a; font-size:14px; }
+  .media-table tr:hover td { background:#17171f; }
+  .media-name { max-width:340px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .link-btn { background:none; border:none; color:var(--accent); cursor:pointer; font-size:13px; padding:4px 8px; }
+  .link-btn.danger { color:var(--bad); }
+
+  /* ── Buttons ── */
+  .btn-primary { padding:13px 20px; border:none; border-radius:10px; background:var(--accent);
+                 color:#fff; font-size:14px; font-weight:700; cursor:pointer; }
+  .btn-primary:disabled { opacity:.45; }
+  .btn-ghost { padding:12px 18px; border:1px solid var(--line); border-radius:10px; background:var(--card2);
+               color:var(--ink); font-size:14px; cursor:pointer; }
+  .btn-ghost.danger { color:var(--bad); border-color:rgba(255,107,107,.35); }
+
+  /* ── Drawer / modal ── */
+  .overlay { position:fixed; inset:0; background:rgba(5,5,10,.7); z-index:50; display:none; }
+  .overlay.open { display:block; }
+  .drawer { position:fixed; top:0; right:0; bottom:0; width:min(480px, 100vw); background:var(--bg);
+            border-left:1px solid var(--line); z-index:60; transform:translateX(105%);
+            transition:transform .22s ease; overflow-y:auto; padding:20px 20px calc(40px + env(safe-area-inset-bottom)); }
+  .drawer.open { transform:translateX(0); }
+  .drawer h2 { font-size:18px; display:flex; align-items:center; gap:10px; }
+  .drawer .close { margin-left:auto; background:none; border:none; color:var(--dim); font-size:26px; cursor:pointer; }
+  .section { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; margin:14px 0; }
+  .section h3 { font-size:12px; color:var(--dim); text-transform:uppercase; letter-spacing:.7px; margin-bottom:12px; }
+  .kv { display:grid; grid-template-columns:110px 1fr; gap:6px 12px; font-size:13px; }
+  .kv .k { color:var(--dim); } .kv .v { word-break:break-all; }
+  .seg { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
+  .seg button { padding:12px 0; border:1px solid var(--line); border-radius:10px; background:var(--card2);
+                color:var(--ink); font-size:14px; font-weight:600; cursor:pointer; }
+  .seg button.active { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .stepper { display:flex; align-items:center; gap:8px; }
+  .stepper button { width:48px; height:46px; border:1px solid var(--line); border-radius:10px;
+                    background:var(--card2); color:var(--ink); font-size:19px; cursor:pointer; flex:0 0 auto; }
+  .stepper .val { flex:1; text-align:center; font-size:24px; font-weight:700; color:var(--accent); }
+  .stepper .val small { font-size:12px; color:var(--dim); font-weight:400; }
+  .row-btns { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .row-btns .btn-ghost { text-align:center; }
+  .field-inline { display:flex; gap:8px; margin-bottom:8px; }
+  .field-inline input { flex:1; padding:11px 12px; border:1px solid var(--line); border-radius:10px;
+                        background:#10101a; color:var(--ink); font-size:14px; outline:none; min-width:0; }
+  .assigned-item { display:flex; align-items:center; gap:8px; padding:8px 0; border-bottom:1px solid #1d1d2a; font-size:13px; }
+  .assigned-item:last-child { border-bottom:none; }
+  .assigned-item .n { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .settings-note { font-size:11px; color:var(--dim); margin-top:10px; line-height:1.5; }
+
+  /* ── Assign modal ── */
+  .modal { position:fixed; inset:0; z-index:70; display:none; align-items:center; justify-content:center;
+           padding:16px; background:rgba(5,5,10,.7); }
+  .modal.open { display:flex; }
+  .modal-card { background:var(--card); border:1px solid var(--line); border-radius:16px; width:100%;
+                max-width:440px; max-height:82vh; display:flex; flex-direction:column; }
+  .modal-card h2 { font-size:16px; padding:18px 20px 8px; }
+  .modal-body { overflow-y:auto; padding:6px 20px; flex:1; }
+  .modal-foot { padding:14px 20px 18px; display:flex; gap:10px; }
+  .modal-foot .btn-primary { flex:1; }
+  .pick { display:flex; align-items:center; gap:12px; padding:11px 4px; border-bottom:1px solid #1d1d2a;
+          cursor:pointer; font-size:14px; }
+  .pick input { width:20px; height:20px; accent-color:var(--accent); }
+  .pick .g { color:var(--dim); font-size:11px; margin-left:auto; }
+  .pick-group { font-size:11px; color:var(--accent); text-transform:uppercase; letter-spacing:.6px;
+                padding:12px 4px 4px; display:flex; align-items:center; gap:8px; cursor:pointer; }
+
+  .toast-wrap { position:fixed; bottom:calc(18px + env(safe-area-inset-bottom)); left:50%;
+                transform:translateX(-50%); z-index:100; display:flex; flex-direction:column; gap:8px; }
+  .toast { padding:11px 22px; background:#1e1e2c; border:1px solid var(--accent); border-radius:10px;
+           font-size:13px; text-align:center; max-width:88vw; }
+  .toast.err { border-color:var(--bad); }
+
+  @media (max-width: 560px) {
+    header h1 { width:100%; }
+    .grid { grid-template-columns:1fr; }
+    .kv { grid-template-columns:96px 1fr; }
+    .toolbar .tabs { width:100%; }
+    .tabs button { flex:1; }
   }
-  .app { display: flex; flex-direction: column; height: 100vh; }
-
-  /* Header */
-  .header {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 10px 20px; background: var(--surface); border-bottom: 1px solid var(--border);
-    flex-shrink: 0;
-  }
-  .header h1 { font-size: 15px; font-weight: 600; letter-spacing: 0.5px; }
-  .header h1 span { color: var(--accent2); }
-  .header-right { display: flex; gap: 12px; align-items: center; font-size: 12px; color: var(--text2); }
-  .stat-badge { padding: 3px 8px; border-radius: 10px; background: var(--surface2); font-size: 11px; }
-  .stat-badge.online { color: var(--green); }
-  .stat-badge.offline { color: var(--red); }
-
-  /* Main layout: 3-column */
-  .main { display: flex; flex: 1; overflow: hidden; }
-
-  /* Left nav */
-  .nav-panel {
-    width: 200px; min-width: 180px; background: var(--surface);
-    border-right: 1px solid var(--border); display: flex; flex-direction: column;
-  }
-  .nav-section { padding: 12px 0; }
-  .nav-label { font-size: 10px; color: var(--text2); text-transform: uppercase; letter-spacing: 1px; padding: 0 16px; margin-bottom: 6px; }
-  .nav-item {
-    display: flex; align-items: center; gap: 8px; padding: 8px 16px;
-    font-size: 13px; cursor: pointer; transition: background 0.1s;
-  }
-  .nav-item:hover { background: var(--surface2); }
-  .nav-item.active { background: var(--accent)22; color: var(--accent2); border-right: 2px solid var(--accent); }
-  .nav-icon { font-size: 14px; width: 20px; text-align: center; }
-  .nav-count { margin-left: auto; font-size: 10px; color: var(--text2); background: var(--surface2); padding: 1px 6px; border-radius: 8px; }
-
-  /* Middle panel */
-  .list-panel {
-    width: 340px; min-width: 280px; border-right: 1px solid var(--border);
-    display: flex; flex-direction: column; background: var(--bg);
-  }
-  .list-toolbar {
-    display: flex; gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--border);
-    align-items: center; flex-shrink: 0;
-  }
-  .list-toolbar input {
-    flex: 1; padding: 6px 10px; border: 1px solid var(--border); border-radius: 5px;
-    background: var(--surface); color: var(--text); font-size: 12px; outline: none;
-  }
-  .list-toolbar input:focus { border-color: var(--accent); }
-  .list-items { flex: 1; overflow-y: auto; }
-
-  /* Device list items */
-  .list-item {
-    display: flex; align-items: center; gap: 10px; padding: 10px 14px;
-    cursor: pointer; border-bottom: 1px solid var(--border); transition: background 0.1s;
-  }
-  .list-item:hover { background: var(--surface); }
-  .list-item.active { background: var(--accent)18; border-left: 3px solid var(--accent); }
-  .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-  .dot.online { background: var(--green); }
-  .dot.offline { background: var(--red); }
-  .dot.unknown { background: var(--text2); }
-  .item-info { flex: 1; min-width: 0; }
-  .item-title { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .item-sub { font-size: 11px; color: var(--text2); margin-top: 1px; }
-  .item-badge { font-size: 10px; color: var(--accent2); background: var(--accent)15; padding: 2px 6px; border-radius: 4px; }
-
-  /* Media list items */
-  .media-row {
-    display: flex; align-items: center; gap: 8px; padding: 8px 14px;
-    cursor: pointer; border-bottom: 1px solid var(--border); font-size: 12px;
-  }
-  .media-row:hover { background: var(--surface); }
-  .media-row.active { background: var(--accent)18; border-left: 3px solid var(--accent); }
-  .media-row .icon { font-size: 16px; flex-shrink: 0; }
-  .media-row .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .media-row .meta { color: var(--text2); font-size: 10px; white-space: nowrap; }
-  .media-row .assigned-count { font-size: 10px; color: var(--green); background: var(--green)18; padding: 1px 5px; border-radius: 4px; }
-
-  /* Folder items */
-  .folder-row {
-    display: flex; align-items: center; gap: 8px; padding: 7px 14px;
-    cursor: pointer; border-bottom: 1px solid var(--border); font-size: 12px;
-    font-weight: 500;
-  }
-  .folder-row:hover { background: var(--surface); }
-  .folder-row.active { background: var(--accent)18; }
-  .folder-row .icon { font-size: 14px; }
-  .folder-back { color: var(--text2); font-weight: 400; }
-
-  /* Right detail panel */
-  .detail-panel { flex: 1; overflow-y: auto; padding: 20px 24px; background: var(--bg); }
-  .detail-empty { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text2); font-size: 13px; }
-
-  .detail-header { margin-bottom: 20px; }
-  .detail-header h2 { font-size: 18px; font-weight: 600; margin-bottom: 3px; }
-  .detail-header .sub { font-size: 12px; color: var(--text2); }
-
-  .detail-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; margin-bottom: 20px; }
-  .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
-  .stat-card .label { font-size: 10px; color: var(--text2); text-transform: uppercase; letter-spacing: 0.5px; }
-  .stat-card .value { font-size: 16px; font-weight: 600; margin-top: 3px; }
-  .stat-card .value.green { color: var(--green); }
-  .stat-card .value.red { color: var(--red); }
-  .stat-card .value.orange { color: var(--orange); }
-
-  .section-title { font-size: 12px; font-weight: 600; color: var(--text2); text-transform: uppercase; letter-spacing: 0.5px; margin: 18px 0 8px; }
-
-  .action-bar { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
-  .btn {
-    padding: 7px 14px; border: 1px solid var(--border); border-radius: 5px;
-    background: var(--surface); color: var(--text); font-size: 11px;
-    cursor: pointer; transition: all 0.12s; white-space: nowrap;
-  }
-  .btn:hover { background: var(--surface2); border-color: var(--accent); }
-  .btn.danger { border-color: var(--red); color: var(--red); }
-  .btn.danger:hover { background: var(--red)22; }
-  .btn.primary { background: var(--accent); border-color: var(--accent); color: white; }
-  .btn.primary:hover { opacity: 0.9; }
-  .btn.sm { padding: 4px 10px; font-size: 10px; }
-  .btn.green { border-color: var(--green); color: var(--green); }
-
-  /* Assignment panel */
-  .assign-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
-  .assign-device {
-    display: flex; align-items: center; gap: 8px; padding: 6px 0;
-    border-bottom: 1px solid var(--border); font-size: 12px;
-  }
-  .assign-device:last-child { border-bottom: none; }
-  .assign-device label { flex: 1; cursor: pointer; display: flex; align-items: center; gap: 6px; }
-  .assign-device input[type=checkbox] { accent-color: var(--accent); }
-
-  /* Upload area */
-  .upload-zone {
-    border: 2px dashed var(--border); border-radius: 8px; padding: 24px;
-    text-align: center; color: var(--text2); cursor: pointer; transition: border-color 0.2s;
-    margin-bottom: 16px;
-  }
-  .upload-zone:hover, .upload-zone.drag { border-color: var(--accent); background: var(--accent)08; }
-  .upload-zone input { display: none; }
-
-  /* Tables */
-  .data-table { width: 100%; border-collapse: collapse; font-size: 11px; }
-  .data-table th { text-align: left; padding: 7px 8px; color: var(--text2); border-bottom: 1px solid var(--border); font-weight: 500; }
-  .data-table td { padding: 7px 8px; border-bottom: 1px solid var(--border); }
-
-  /* Login */
-  .login-overlay {
-    position: fixed; inset: 0; background: var(--bg); display: flex;
-    align-items: center; justify-content: center; z-index: 100;
-  }
-  .login-box { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 28px; width: 300px; }
-  .login-box h2 { margin-bottom: 16px; font-size: 17px; text-align: center; }
-  .login-box input {
-    width: 100%; padding: 9px 12px; margin-bottom: 10px;
-    border: 1px solid var(--border); border-radius: 6px;
-    background: var(--bg); color: var(--text); font-size: 13px;
-  }
-  .login-box .btn { width: 100%; text-align: center; }
-  .login-error { color: var(--red); font-size: 12px; text-align: center; margin-bottom: 8px; }
-
-  /* Modal */
-  .modal-bg { position: fixed; inset: 0; background: #000a; z-index: 50; display: flex; align-items: center; justify-content: center; }
-  .modal {
-    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
-    padding: 24px; min-width: 360px; max-width: 500px; max-height: 80vh; overflow-y: auto;
-  }
-  .modal h3 { margin-bottom: 12px; font-size: 15px; }
-  .modal .close { position: absolute; top: 12px; right: 16px; cursor: pointer; font-size: 18px; color: var(--text2); }
-
-  /* Group headers in device list */
-  .group-header {
-    display: flex; align-items: center; gap: 8px; padding: 8px 14px;
-    background: var(--surface); border-bottom: 1px solid var(--border);
-    font-size: 11px; font-weight: 600; color: var(--text2); text-transform: uppercase;
-    letter-spacing: 0.5px; cursor: default; transition: background 0.15s;
-  }
-  .group-header .group-icon { font-size: 12px; }
-  .group-header .group-name { flex: 1; }
-  .group-header .group-count { font-size: 10px; background: var(--surface2); padding: 1px 6px; border-radius: 8px; }
-
-  /* Drag & drop states */
-  .drag-over { background: var(--accent)22 !important; border-color: var(--accent) !important; }
-  .list-item[draggable=true] { cursor: grab; }
-  .list-item[draggable=true]:active { cursor: grabbing; opacity: 0.6; }
-  .media-row[draggable=true] { cursor: grab; }
-  .media-row[draggable=true]:active { cursor: grabbing; opacity: 0.6; }
-  .folder-row.drag-over { background: var(--accent)22; }
-
-  /* Toast */
-  .toast {
-    position: fixed; bottom: 16px; right: 16px; padding: 10px 18px;
-    background: var(--surface2); border: 1px solid var(--border);
-    border-radius: 7px; font-size: 12px; z-index: 200;
-    animation: fadeUp 0.25s ease;
-  }
-  .toast.error { border-color: var(--red); }
-  @keyframes fadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 </style>
 </head>
 <body>
-<div class="app" id="app">
-  <!-- Login -->
-  <div class="login-overlay" id="loginOverlay">
-    <div class="login-box">
-      <h2>🎬 Ars Fleet</h2>
-      <div class="login-error" id="loginError" style="display:none"></div>
-      <input type="text" id="loginUser" placeholder="Username" value="admin">
-      <input type="password" id="loginPass" placeholder="Password" onkeydown="if(event.key==='Enter')login()">
-      <button class="btn primary" onclick="login()">Sign In</button>
+
+<!-- Login -->
+<div class="login-wrap" id="loginView">
+  <div class="login-card">
+    <div style="font-size:38px">🎬</div>
+    <h1>Ars Fleet</h1>
+    <div class="sub">Media orchestration dashboard</div>
+    <div class="login-err" id="loginErr"></div>
+    <form id="loginForm">
+      <input type="text" id="loginUser" placeholder="Username" autocomplete="username" required>
+      <input type="password" id="loginPass" placeholder="Password" autocomplete="current-password" required>
+      <button type="submit" class="btn-primary">Sign in</button>
+    </form>
+  </div>
+</div>
+
+<!-- App -->
+<div id="app">
+  <header>
+    <h1>🎬 Ars Fleet <span class="v" id="verLabel"></span></h1>
+    <div class="chips" id="chips"></div>
+  </header>
+  <div class="toolbar">
+    <div class="tabs">
+      <button id="tabDevices" class="active" onclick="switchTab('devices')">Devices</button>
+      <button id="tabMedia" onclick="switchTab('media')">Media</button>
     </div>
+    <select class="groupsel" id="groupFilter" onchange="renderDevices()">
+      <option value="">All groups</option>
+    </select>
+    <div class="spacer"></div>
+    <button class="icon-btn" onclick="refreshAll(true)">↻ Refresh</button>
+    <button class="icon-btn" onclick="logout()">Logout</button>
   </div>
 
-  <!-- Header -->
-  <div class="header">
-    <h1>🎬 <span>Ars Fleet</span></h1>
-    <div class="header-right">
-      <span class="stat-badge online" id="cntOn">0 online</span>
-      <span class="stat-badge offline" id="cntOff">0 offline</span>
-      <span class="stat-badge" id="cntPinned" style="background:#7c4dff;color:white">0 pinned</span>
-      <span class="stat-badge" id="cntAll">0 devices</span>
-      <button class="btn sm" onclick="refreshAll()">↻</button>
-    </div>
-  </div>
+  <div id="devicesView" class="grid"></div>
 
-  <!-- Main 3-column -->
-  <div class="main">
-    <!-- Col 1: Nav -->
-    <div class="nav-panel">
-      <div class="nav-section">
-        <div class="nav-label">Views</div>
-        <div class="nav-item active" data-view="devices" onclick="switchView('devices')">
-          <span class="nav-icon">📱</span> Devices <span class="nav-count" id="navDevCount">0</span>
-        </div>
-        <div class="nav-item" data-view="media" onclick="switchView('media')">
-          <span class="nav-icon">📁</span> Media <span class="nav-count" id="navMediaCount">0</span>
-        </div>
-      </div>
+  <div id="mediaView" style="display:none">
+    <div class="dropzone" id="dropzone">
+      <div style="font-size:26px;margin-bottom:8px">⬆</div>
+      <b>Drop media files here</b> or tap to choose<br>
+      <span style="font-size:12px">Videos (.mp4 .mkv .mov .webm) and images (.jpg .png) — multiple files at once</span>
+      <input type="file" id="fileInput" multiple hidden
+             accept="video/*,image/*,.mp4,.mkv,.mov,.webm,.m4v,.jpg,.jpeg,.png,.gif,.webp">
     </div>
-
-    <!-- Col 2: List -->
-    <div class="list-panel">
-      <div class="list-toolbar" id="listToolbar">
-        <input type="text" placeholder="Search…" id="searchInput" oninput="filterList()">
-      </div>
-      <div class="list-items" id="listItems"></div>
-    </div>
-
-    <!-- Col 3: Detail -->
-    <div class="detail-panel" id="detailPanel">
-      <div class="detail-empty" id="emptyState">Select an item to view details</div>
+    <div id="uploads"></div>
+    <div style="overflow-x:auto">
+      <table class="media-table">
+        <thead><tr><th>File</th><th>Size</th><th>Assigned</th><th></th></tr></thead>
+        <tbody id="mediaRows"></tbody>
+      </table>
     </div>
   </div>
 </div>
 
-<!-- Modal container -->
-<div id="modalContainer"></div>
+<!-- Device drawer -->
+<div class="overlay" id="overlay" onclick="closeDrawer()"></div>
+<div class="drawer" id="drawer"></div>
+
+<!-- Assign modal -->
+<div class="modal" id="assignModal">
+  <div class="modal-card">
+    <h2 id="assignTitle">Assign to devices</h2>
+    <div class="modal-body" id="assignBody"></div>
+    <div class="modal-foot">
+      <button class="btn-ghost" onclick="closeAssign()">Cancel</button>
+      <button class="btn-primary" id="assignConfirm">Assign</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast-wrap" id="toasts"></div>
 
 <script>
+'use strict';
 const API = location.origin;
 let token = localStorage.getItem('fleet_token') || '';
-let devices = [];
-let mediaFiles = [];
-let folders = [];
-let currentView = 'devices';
-let selectedId = null;
-let currentFolderId = null; // for media browsing
+let devices = [], media = [], summary = null;
+let currentTab = 'devices';
+let drawerDevice = null;
+let refreshTimer = null;
 
-// ── Auth ──
-async function apiFetch(path, opts = {}) {
+/* ── HTTP helpers ── */
+async function api(path, opts = {}) {
   const headers = { 'Authorization': `Bearer ${token}`, ...(opts.headers || {}) };
   const res = await fetch(`${API}${path}`, { ...opts, headers });
-  if (res.status === 401) { showLogin(); throw new Error('Unauthorized'); }
-  if (!res.ok) { const e = await res.text(); throw new Error(e); }
+  if (res.status === 401) { showLogin(); throw new Error('unauthorized'); }
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`;
+    try { msg = (await res.json()).detail || msg; } catch(e) {}
+    throw new Error(msg);
+  }
   return res.json();
 }
-function showLogin() { document.getElementById('loginOverlay').style.display = 'flex'; }
-function hideLogin() { document.getElementById('loginOverlay').style.display = 'none'; }
-async function login() {
+const form = (obj) => ({
+  method: 'POST',
+  headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+  body: new URLSearchParams(obj).toString(),
+});
+
+/* ── Auth ── */
+document.getElementById('loginForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
   const user = document.getElementById('loginUser').value;
   const pass = document.getElementById('loginPass').value;
   try {
     const res = await fetch(`${API}/auth/token`, {
       method: 'POST', headers: { 'Authorization': 'Basic ' + btoa(`${user}:${pass}`) },
     });
-    if (!res.ok) throw new Error('Bad credentials');
+    if (!res.ok) throw new Error('Wrong username or password');
     const data = await res.json();
     token = data.token; localStorage.setItem('fleet_token', token);
-    hideLogin(); refreshAll();
-  } catch {
-    const el = document.getElementById('loginError');
-    el.style.display = 'block'; el.textContent = 'Login failed';
+    showApp();
+  } catch (err) {
+    document.getElementById('loginErr').textContent = err.message;
   }
+});
+function logout() { token = ''; localStorage.removeItem('fleet_token'); showLogin(); }
+function showLogin() {
+  clearInterval(refreshTimer);
+  document.getElementById('loginView').style.display = 'flex';
+  document.getElementById('app').style.display = 'none';
+}
+function showApp() {
+  document.getElementById('loginView').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  refreshAll(true);
+  clearInterval(refreshTimer);
+  refreshTimer = setInterval(() => { if (!document.hidden) refreshAll(false); }, 10000);
 }
 
-// ── Data loading ──
-async function loadDevices() {
-  const data = await apiFetch('/admin/devices');
-  devices = data.devices || [];
-  const on = devices.filter(d => d.status === 'online').length;
-  const pinned = devices.filter(d => d.pinned).length;
-  document.getElementById('cntOn').textContent = `${on} online`;
-  document.getElementById('cntOff').textContent = `${devices.length - on} offline`;
-  document.getElementById('cntPinned').textContent = `${pinned} pinned`;
-  document.getElementById('cntAll').textContent = `${devices.length} devices`;
-  document.getElementById('navDevCount').textContent = devices.length;
-}
-
-function fmtPinnedAt(v) {
-  if (v === null || v === undefined || v === '') return '—';
-  const s = String(v);
-  // Numeric (epoch seconds) vs ISO
-  const epoch = /^\d+(\.\d+)?$/.test(s) ? Number(s) * 1000 : Date.parse(s);
-  if (!epoch || isNaN(epoch)) return esc(s);
-  const d = new Date(epoch);
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-async function loadMedia() {
-  const [mData, fData] = await Promise.all([apiFetch('/media/list'), apiFetch('/folders')]);
-  mediaFiles = mData.files || [];
-  folders = fData.folders || [];
-  document.getElementById('navMediaCount').textContent = mediaFiles.length;
-}
-
-// ── View switching ──
-function switchView(view) {
-  currentView = view; selectedId = null;
-  document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.view === view));
-  renderList();
-  document.getElementById('detailPanel').innerHTML = '<div class="detail-empty">Select an item to view details</div>';
-}
-
-// ── List rendering ──
-function renderList() {
-  if (currentView === 'devices') renderDeviceList();
-  else renderMediaList();
-}
-
-function renderDeviceList() {
-  const q = document.getElementById('searchInput').value.toLowerCase();
-  const filtered = devices.filter(d =>
-    (d.label||'').toLowerCase().includes(q) || (d.hostname||'').toLowerCase().includes(q) ||
-    (d.id||'').toLowerCase().includes(q) || (d.group_name||'').toLowerCase().includes(q)
-  );
-  document.getElementById('listToolbar').innerHTML = `
-    <input type="text" placeholder="Search devices…" id="searchInput" oninput="filterList()" value="${esc(q)}">
-    <button class="btn sm" onclick="addGroupPrompt()">+ Group</button>
-  `;
-
-  // Group devices by group_name
-  const groups = {};
-  filtered.forEach(d => {
-    const g = d.group_name || 'default';
-    if (!groups[g]) groups[g] = [];
-    groups[g].push(d);
-  });
-
-  let html = '';
-  for (const [groupName, groupDevices] of Object.entries(groups).sort()) {
-    html += `<div class="group-header"
-      ondragover="event.preventDefault();this.classList.add('drag-over')"
-      ondragleave="this.classList.remove('drag-over')"
-      ondrop="event.preventDefault();this.classList.remove('drag-over');dropDeviceOnGroup(event,'${esc(groupName)}')">
-      <span class="group-icon">📂</span>
-      <span class="group-name">${esc(groupName)}</span>
-      <span class="group-count">${groupDevices.length}</span>
-      <button class="btn sm" onclick="event.stopPropagation();renameGroupPrompt('${esc(groupName)}')" style="margin-left:auto;font-size:10px;padding:2px 6px" title="Rename group">✏️</button>
-    </div>`;
-    for (const d of groupDevices) {
-      html += `<div class="list-item ${selectedId === d.id ? 'active' : ''}"
-        draggable="true"
-        ondragstart="event.dataTransfer.setData('device_id','${d.id}');event.dataTransfer.effectAllowed='move'"
-        onclick="selectDevice('${d.id}')">
-        <div class="dot ${d.status||'unknown'}"></div>
-        <div class="item-info">
-          <div class="item-title">${d.pinned ? '🔌 ' : ''}${esc(d.label || d.hostname || d.id)}</div>
-          <div class="item-sub">${esc(d.ip_address||'—')} · ${esc(d.hw_model||'')}</div>
-        </div>
-      </div>`;
-    }
-  }
-  document.getElementById('listItems').innerHTML = html || '<div style="padding:20px;text-align:center;color:var(--text2);font-size:12px">No devices found</div>';
-}
-
-async function dropDeviceOnGroup(event, groupName) {
-  const deviceId = event.dataTransfer.getData('device_id');
-  if (!deviceId) return;
-  const fd = new FormData();
-  fd.append('group_name', groupName);
-  await apiFetch(`/admin/devices/${deviceId}`, { method: 'PUT', body: fd });
-  toast(`Moved to ${groupName} ✓`);
-  await loadDevices(); renderDeviceList();
-  if (selectedId === deviceId) selectDevice(deviceId);
-}
-
-function addGroupPrompt() {
-  const name = prompt('New group name:');
-  if (!name) return;
-  // Groups are implicit — just rename a device into a new group to create it
-  toast('Group "' + name + '" will appear when you drag a device into it. Drag a device onto the new group header.', false);
-  // Add a placeholder group header for drop target
-  const list = document.getElementById('listItems');
-  const ph = document.createElement('div');
-  ph.className = 'group-header';
-  ph.innerHTML = `<span class="group-icon">📂</span><span class="group-name">${esc(name)}</span><span class="group-count">0</span>`;
-  ph.ondragover = e => { e.preventDefault(); ph.classList.add('drag-over'); };
-  ph.ondragleave = () => ph.classList.remove('drag-over');
-  ph.ondrop = e => { e.preventDefault(); ph.classList.remove('drag-over'); dropDeviceOnGroup(e, name); };
-  list.prepend(ph);
-}
-
-async function renameGroupPrompt(oldName) {
-  const newName = prompt('Rename group:', oldName);
-  if (!newName || newName === oldName) return;
-  // Rename all devices in this group
-  const inGroup = devices.filter(d => (d.group_name||'default') === oldName);
-  for (const d of inGroup) {
-    const fd = new FormData();
-    fd.append('group_name', newName);
-    await apiFetch(`/admin/devices/${d.id}`, { method: 'PUT', body: fd });
-  }
-  toast(`Group renamed: ${oldName} → ${newName} ✓`);
-  await loadDevices(); renderDeviceList();
-}
-
-function renderMediaList() {
-  const q = document.getElementById('searchInput')?.value?.toLowerCase() || '';
-  // Files in current folder
-  const filesHere = mediaFiles.filter(f => {
-    const fid = f.folder_id || null;
-    if (fid !== currentFolderId) return false;
-    if (q) return (f.original_name||f.filename||'').toLowerCase().includes(q);
-    return true;
-  });
-  // Subfolders of current folder
-  const subfolders = folders.filter(f => (f.parent_id || null) === currentFolderId);
-
-  let toolbar = `<input type="text" placeholder="Search media…" id="searchInput" oninput="filterList()" value="${esc(q)}">`;
-  toolbar += `<button class="btn sm primary" onclick="showUploadModal()">⬆ Upload</button>`;
-  toolbar += `<button class="btn sm" onclick="showNewFolderModal()">+ Folder</button>`;
-  document.getElementById('listToolbar').innerHTML = toolbar;
-
-  let html = '';
-  // Breadcrumb / back button
-  if (currentFolderId) {
-    const folder = folders.find(f => f.id === currentFolderId);
-    const parentId = folder ? folder.parent_id : null;
-    html += `<div class="folder-row folder-back" onclick="navigateFolder(${parentId ? `'${parentId}'` : 'null'})"
-      ondragover="event.preventDefault();this.classList.add('drag-over')"
-      ondragleave="this.classList.remove('drag-over')"
-      ondrop="event.preventDefault();this.classList.remove('drag-over');dropFileOnFolder(event,${parentId ? `'${parentId}'` : 'null'})">
-      <span class="icon">⬅</span> <span>${esc(folder ? folder.path : '/')}</span>
-    </div>`;
-  }
-  // Subfolders (drop targets for files)
-  for (const sf of subfolders) {
-    html += `<div class="folder-row" ondblclick="navigateFolder('${sf.id}')" onclick="selectFolder('${sf.id}')"
-      ondragover="event.preventDefault();this.classList.add('drag-over')"
-      ondragleave="this.classList.remove('drag-over')"
-      ondrop="event.preventDefault();this.classList.remove('drag-over');dropFileOnFolder(event,'${sf.id}')">
-      <span class="icon">📂</span> <span class="name">${esc(sf.name)}</span>
-      <span class="meta">${mediaFiles.filter(f=>f.folder_id===sf.id).length} files</span>
-    </div>`;
-  }
-  // Files (draggable)
-  for (const f of filesHere) {
-    const icon = mediaIcon(f);
-    html += `<div class="media-row ${selectedId===f.id?'active':''}" onclick="selectMedia('${f.id}')"
-      draggable="true"
-      ondragstart="event.dataTransfer.setData('media_id','${f.id}');event.dataTransfer.effectAllowed='move'">
-      <span class="icon">${icon}</span>
-      <span class="name">${esc(f.original_name || f.filename)}</span>
-      <span class="meta">${fmtBytes(f.size_bytes)}</span>
-    </div>`;
-  }
-  if (!subfolders.length && !filesHere.length) {
-    html += '<div style="padding:30px;text-align:center;color:var(--text2);font-size:12px">Empty folder</div>';
-  }
-  document.getElementById('listItems').innerHTML = html;
-}
-
-async function dropFileOnFolder(event, folderId) {
-  const mediaId = event.dataTransfer.getData('media_id');
-  if (!mediaId) return;
-  const fd = new FormData();
-  if (folderId) fd.append('folder_id', folderId);
-  await apiFetch(`/media/${mediaId}/move`, { method: 'POST', body: fd });
-  const f = mediaFiles.find(m => m.id === mediaId);
-  const folderName = folderId ? (folders.find(x => x.id === folderId)?.name || folderId) : 'root';
-  toast(`Moved ${f ? f.original_name : 'file'} → ${folderName} ✓`);
-  await loadMedia(); renderMediaList();
-}
-
-function navigateFolder(folderId) { currentFolderId = folderId; selectedId = null; renderMediaList(); }
-function selectFolder(folderId) {
-  selectedId = folderId;
-  renderMediaList();
-  showFolderDetail(folderId);
-}
-function filterList() { renderList(); }
-
-// ── Device detail ──
-async function selectDevice(id) {
-  selectedId = id;
-  renderDeviceList();
+/* ── Data ── */
+async function refreshAll(showErrors) {
   try {
-    const [devData, assignData] = await Promise.all([
-      apiFetch(`/admin/devices/${id}`),
-      apiFetch(`/admin/devices/${id}/assignments`)
-    ]);
-    showDeviceDetail(devData, assignData.assignments || []);
-  } catch (e) { toast('Error loading device: ' + e.message, true); }
-}
-
-function showDeviceDetail(data, assignments) {
-  const d = data.device;
-  const hb = data.recent_heartbeats || [];
-  const lastHb = hb[0] || {};
-  const panel = document.getElementById('detailPanel');
-
-  panel.innerHTML = `
-    <div class="detail-header">
-      <h2 style="display:flex;align-items:center;gap:8px">
-        <span id="deviceLabel">${d.pinned ? '🔌 ' : ''}${esc(d.label || d.hostname || d.id)}</span>
-        <button class="btn sm" onclick="renameDevice('${d.id}','${esc(d.label||d.hostname||d.id)}')" title="Rename device" style="font-size:12px;padding:3px 8px">✏️</button>
-      </h2>
-      <div class="sub">
-        ${esc(d.id)} · ${esc(d.hw_model||'unknown')} ·
-        group: <strong style="cursor:pointer;color:var(--accent2)" onclick="changeGroup('${d.id}','${esc(d.group_name||'default')}')" title="Change group">${esc(d.group_name||'default')} ✏️</strong>
-        · registered ${timeAgo(d.registered_at)}
-      </div>
-    </div>
-    ${d.pinned ? `
-      <div style="margin:12px 0;padding:12px 14px;background:#7c4dff22;border-left:3px solid #7c4dff;border-radius:4px;display:flex;align-items:center;gap:10px;font-size:13px">
-        <span style="font-size:18px">🔌</span>
-        <div style="flex:1">
-          <div><strong>USB Pinned</strong> · ${esc(d.current_manifest_version || 'usb')} <span style="color:var(--text2)">(since ${fmtPinnedAt(d.pinned_at)})</span></div>
-          <div style="color:var(--text2);font-size:11px">Dashboard manifest updates are ignored until released.</div>
-        </div>
-        <button class="btn sm" onclick="unpinDevice('${d.id}')" style="background:#7c4dff;color:white;border-color:#7c4dff">Release</button>
-      </div>
-    ` : ''}
-    <div class="detail-grid">
-      <div class="stat-card"><div class="label">Status</div><div class="value ${d.status==='online'?'green':'red'}">${d.status||'unknown'}</div></div>
-      <div class="stat-card"><div class="label">Last Seen</div><div class="value">${timeAgo(d.last_seen)}</div></div>
-      <div class="stat-card"><div class="label">CPU Temp</div><div class="value ${(lastHb.cpu_temp||0)>70?'orange':''}">${lastHb.cpu_temp?lastHb.cpu_temp.toFixed(1)+'°C':'—'}</div></div>
-      <div class="stat-card"><div class="label">Disk Free</div><div class="value">${lastHb.disk_free_mb?(lastHb.disk_free_mb/1024).toFixed(1)+' GB':'—'}</div></div>
-      <div class="stat-card"><div class="label">Player</div><div class="value ${lastHb.vlc_status==='running'?'green':'red'}">${lastHb.vlc_status||'—'}</div></div>
-      <div class="stat-card"><div class="label">Uptime</div><div class="value">${lastHb.uptime_seconds?fmtUptime(lastHb.uptime_seconds):'—'}</div></div>
-      <div class="stat-card"><div class="label">IP</div><div class="value" style="font-size:13px">${esc(d.ip_address||'—')}</div></div>
-      <div class="stat-card"><div class="label">Assigned Files</div><div class="value ${assignments.length?'green':''}">${assignments.length}</div></div>
-    </div>
-
-    <div class="section-title">Commands</div>
-    <div class="action-bar">
-      <button class="btn primary" onclick="sendCmd('${d.id}','update_now')">⬇ Update Now</button>
-      <button class="btn" onclick="sendCmd('${d.id}','player_restart')">▶ Restart Player</button>
-      <button class="btn" onclick="sendCmd('${d.id}','health_probe')">🔍 Health Probe</button>
-      <button class="btn danger" onclick="sendCmd('${d.id}','reboot')">⟳ Reboot</button>
-    </div>
-
-    <div class="section-title">Assigned Media (${assignments.length} files)</div>
-    <div class="assign-panel">
-      ${assignments.length ? assignments.map(a => `
-        <div class="assign-device">
-          <span>${mediaIcon(a)}</span>
-          <span style="flex:1">${esc(a.original_name||a.filename)}</span>
-          <span style="color:var(--text2);font-size:10px">${fmtBytes(a.size_bytes)}</span>
-          <button class="btn sm danger" onclick="unassignFromDevice('${a.id}','${d.id}')">✕</button>
-        </div>
-      `).join('') : '<div style="color:var(--text2);font-size:12px;padding:8px">No media assigned yet. Go to Media → select file → Assign.</div>'}
-    </div>
-
-    <div class="section-title">Recent Heartbeats</div>
-    <table class="data-table">
-      <thead><tr><th>Time</th><th>Player</th><th>Temp</th><th>Disk</th></tr></thead>
-      <tbody>${hb.slice(0,8).map(h => `<tr>
-        <td>${timeAgo(h.timestamp)}</td><td>${h.vlc_status||'—'}</td>
-        <td>${h.cpu_temp?h.cpu_temp.toFixed(1)+'°':'—'}</td>
-        <td>${h.disk_free_mb?(h.disk_free_mb/1024).toFixed(1)+'G':'—'}</td>
-      </tr>`).join('')}</tbody>
-    </table>
-  `;
-}
-
-// ── Media detail ──
-async function selectMedia(id) {
-  selectedId = id;
-  renderMediaList();
-  try {
-    const assignData = await apiFetch(`/media/${id}/assignments`);
-    showMediaDetail(id, assignData.assignments || []);
-  } catch (e) { toast('Error: ' + e.message, true); }
-}
-
-function showMediaDetail(fileId, assignments) {
-  const f = mediaFiles.find(m => m.id === fileId);
-  if (!f) return;
-  const panel = document.getElementById('detailPanel');
-  const assignedIds = new Set(assignments.map(a => a.id));
-
-  panel.innerHTML = `
-    <div class="detail-header">
-      <h2>${mediaIcon(f)} ${esc(f.original_name || f.filename)}</h2>
-      <div class="sub">${fmtBytes(f.size_bytes)} · ${esc(f.content_type||'')} · uploaded ${timeAgo(f.uploaded_at)}</div>
-    </div>
-
-    <div class="detail-grid">
-      <div class="stat-card"><div class="label">File ID</div><div class="value" style="font-size:13px;font-family:monospace">${f.id}</div></div>
-      <div class="stat-card"><div class="label">Checksum</div><div class="value" style="font-size:10px;font-family:monospace">${(f.checksum_sha256||'').substring(0,16)}…</div></div>
-      <div class="stat-card"><div class="label">Assigned To</div><div class="value ${assignments.length?'green':''}">${assignments.length} device${assignments.length!==1?'s':''}</div></div>
-    </div>
-
-    <div class="action-bar">
-      <button class="btn primary" onclick="showAssignModal('${f.id}')">📱 Assign to Devices</button>
-      <button class="btn" onclick="showMoveModal('${f.id}')">📂 Move to Folder</button>
-      <button class="btn danger" onclick="deleteMedia('${f.id}')">🗑 Delete</button>
-    </div>
-
-    <div class="section-title">Assigned Devices</div>
-    <div class="assign-panel">
-      ${assignments.length ? assignments.map(a => `
-        <div class="assign-device">
-          <div class="dot ${a.status||'unknown'}"></div>
-          <label>${esc(a.label||a.hostname||a.id)}</label>
-          <span class="item-badge">${esc(a.group_name||'default')}</span>
-          <button class="btn sm danger" onclick="unassignMedia('${f.id}','${a.id}')">✕</button>
-        </div>
-      `).join('') : '<div style="color:var(--text2);font-size:12px;padding:8px">Not assigned to any device</div>'}
-    </div>
-  `;
-}
-
-// ── Folder detail ──
-function showFolderDetail(folderId) {
-  const f = folders.find(x => x.id === folderId);
-  if (!f) return;
-  const filesInFolder = mediaFiles.filter(m => m.folder_id === folderId);
-  const panel = document.getElementById('detailPanel');
-  panel.innerHTML = `
-    <div class="detail-header">
-      <h2>📂 ${esc(f.name)}</h2>
-      <div class="sub">${esc(f.path)} · ${filesInFolder.length} files</div>
-    </div>
-    <div class="action-bar">
-      <button class="btn" onclick="renameFolderPrompt('${f.id}','${esc(f.name)}')">✏ Rename</button>
-      <button class="btn danger" onclick="deleteFolder('${f.id}')">🗑 Delete Folder</button>
-    </div>
-    <div class="section-title">Files in this folder</div>
-    ${filesInFolder.map(m => `
-      <div class="media-row" onclick="selectMedia('${m.id}')">
-        <span class="icon">${mediaIcon(m)}</span>
-        <span class="name">${esc(m.original_name||m.filename)}</span>
-        <span class="meta">${fmtBytes(m.size_bytes)}</span>
-      </div>
-    `).join('') || '<div style="color:var(--text2);font-size:12px;padding:12px">Empty</div>'}
-  `;
-}
-
-// ── Assignment modal ──
-function showAssignModal(mediaId) {
-  apiFetch(`/media/${mediaId}/assignments`).then(data => {
-    const assigned = new Set((data.assignments||[]).map(a => a.id));
-    const html = `
-      <div class="modal-bg" onclick="if(event.target===this)closeModal()">
-        <div class="modal">
-          <h3>📱 Assign to Devices</h3>
-          <div style="margin-bottom:12px;font-size:12px;color:var(--text2)">Select devices that should receive this file:</div>
-          <div style="max-height:50vh;overflow-y:auto">
-            ${devices.map(d => `
-              <div class="assign-device">
-                <label>
-                  <input type="checkbox" class="assign-check" value="${d.id}" ${assigned.has(d.id)?'checked':''}>
-                  <div class="dot ${d.status||'unknown'}" style="display:inline-block;margin-right:4px"></div>
-                  ${esc(d.label||d.hostname||d.id)}
-                </label>
-                <span class="item-badge">${esc(d.group_name||'default')}</span>
-              </div>
-            `).join('')}
-          </div>
-          <div style="margin-top:16px;display:flex;gap:8px;justify-content:flex-end">
-            <button class="btn" onclick="closeModal()">Cancel</button>
-            <button class="btn primary" onclick="applyAssignments('${mediaId}')">Apply</button>
-          </div>
-        </div>
-      </div>
-    `;
-    document.getElementById('modalContainer').innerHTML = html;
-  });
-}
-
-async function applyAssignments(mediaId) {
-  const checks = document.querySelectorAll('.assign-check');
-  const selected = Array.from(checks).filter(c => c.checked).map(c => c.value);
-  const unselected = Array.from(checks).filter(c => !c.checked).map(c => c.value);
-
-  try {
-    if (selected.length) {
-      const fd = new FormData();
-      fd.append('device_ids', selected.join(','));
-      await apiFetch(`/media/${mediaId}/assign`, { method: 'POST', body: fd });
+    const [d, s] = await Promise.all([api('/admin/devices'), api('/admin/summary')]);
+    devices = d.devices || []; summary = s;
+    if (currentTab === 'media' || media.length === 0) {
+      const m = await api('/media/list'); media = m.files || [];
     }
-    if (unselected.length) {
-      const fd = new FormData();
-      fd.append('device_ids', unselected.join(','));
-      await apiFetch(`/media/${mediaId}/unassign`, { method: 'POST', body: fd });
+    renderChips(); renderGroupFilter(); renderDevices(); renderMedia();
+    if (drawerDevice) {
+      const upd = devices.find(x => x.id === drawerDevice.id);
+      if (upd) { upd._assignments = drawerDevice._assignments; drawerDevice = upd; renderDrawer(false); }
     }
-    closeModal();
-    toast('Assignments updated ✓');
-    selectMedia(mediaId);
-  } catch (e) { toast('Error: ' + e.message, true); }
-}
-
-// ── Move file modal ──
-function showMoveModal(fileId) {
-  const html = `
-    <div class="modal-bg" onclick="if(event.target===this)closeModal()">
-      <div class="modal">
-        <h3>📂 Move to Folder</h3>
-        <div style="max-height:50vh;overflow-y:auto">
-          <div class="folder-row" onclick="moveFile('${fileId}', null)">
-            <span class="icon">📁</span> / (root)
-          </div>
-          ${folders.map(f => `
-            <div class="folder-row" onclick="moveFile('${fileId}','${f.id}')">
-              <span class="icon">📂</span> ${esc(f.path)}
-            </div>
-          `).join('')}
-        </div>
-      </div>
-    </div>
-  `;
-  document.getElementById('modalContainer').innerHTML = html;
-}
-
-async function moveFile(fileId, folderId) {
-  const fd = new FormData();
-  if (folderId) fd.append('folder_id', folderId);
-  await apiFetch(`/media/${fileId}/move`, { method: 'POST', body: fd });
-  closeModal(); toast('File moved ✓');
-  await loadMedia(); renderMediaList(); selectMedia(fileId);
-}
-
-// ── Upload modal ──
-function showUploadModal() {
-  const html = `
-    <div class="modal-bg" onclick="if(event.target===this)closeModal()">
-      <div class="modal">
-        <h3>⬆ Upload Media</h3>
-        <div class="upload-zone" id="dropZone"
-             ondragover="event.preventDefault();this.classList.add('drag')"
-             ondragleave="this.classList.remove('drag')"
-             ondrop="event.preventDefault();this.classList.remove('drag');handleDrop(event)"
-             onclick="document.getElementById('fileInput').click()">
-          <p style="font-size:14px;margin-bottom:6px">Drop files here or click to browse</p>
-          <p style="font-size:11px">Video, audio, or images</p>
-          <input type="file" id="fileInput" multiple onchange="handleUpload(this.files)" style="display:none">
-        </div>
-        <div id="uploadProgress"></div>
-      </div>
-    </div>
-  `;
-  document.getElementById('modalContainer').innerHTML = html;
-}
-
-function handleDrop(e) { handleUpload(e.dataTransfer.files); }
-
-async function handleUpload(fileList) {
-  const prog = document.getElementById('uploadProgress');
-  for (const file of fileList) {
-    prog.innerHTML += `<div style="font-size:12px;padding:4px 0">⏳ ${esc(file.name)}…</div>`;
-    const fd = new FormData();
-    fd.append('file', file);
-    try {
-      await apiFetch('/media/upload', { method: 'POST', body: fd });
-      prog.innerHTML += `<div style="font-size:12px;padding:4px 0;color:var(--green)">✓ ${esc(file.name)}</div>`;
-    } catch (e) {
-      prog.innerHTML += `<div style="font-size:12px;padding:4px 0;color:var(--red)">✗ ${esc(file.name)}: ${e.message}</div>`;
-    }
-  }
-  await loadMedia();
-  renderMediaList();
-}
-
-// ── New folder modal ──
-function showNewFolderModal() {
-  const html = `
-    <div class="modal-bg" onclick="if(event.target===this)closeModal()">
-      <div class="modal">
-        <h3>+ New Folder</h3>
-        <input type="text" id="newFolderName" placeholder="Folder name" style="width:100%;padding:8px 12px;margin:8px 0;background:var(--bg);border:1px solid var(--border);border-radius:5px;color:var(--text);font-size:13px" onkeydown="if(event.key==='Enter')createFolder()">
-        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
-          <button class="btn" onclick="closeModal()">Cancel</button>
-          <button class="btn primary" onclick="createFolder()">Create</button>
-        </div>
-      </div>
-    </div>
-  `;
-  document.getElementById('modalContainer').innerHTML = html;
-  setTimeout(() => document.getElementById('newFolderName')?.focus(), 100);
-}
-
-async function createFolder() {
-  const name = document.getElementById('newFolderName').value.trim();
-  if (!name) return;
-  const fd = new FormData();
-  fd.append('name', name);
-  if (currentFolderId) fd.append('parent_id', currentFolderId);
-  await apiFetch('/folders', { method: 'POST', body: fd });
-  closeModal(); toast('Folder created ✓');
-  await loadMedia(); renderMediaList();
-}
-
-// ── Folder actions ──
-function renameFolderPrompt(folderId, currentName) {
-  const name = prompt('New folder name:', currentName);
-  if (!name || name === currentName) return;
-  const fd = new FormData();
-  fd.append('name', name);
-  apiFetch(`/folders/${folderId}`, { method: 'PUT', body: fd }).then(() => {
-    toast('Renamed ✓'); loadMedia().then(() => renderMediaList());
-  });
-}
-
-async function deleteFolder(folderId) {
-  if (!confirm('Delete this folder? Files will be moved to root.')) return;
-  await apiFetch(`/folders/${folderId}`, { method: 'DELETE' });
-  toast('Folder deleted ✓');
-  currentFolderId = null; selectedId = null;
-  await loadMedia(); renderMediaList();
-  document.getElementById('detailPanel').innerHTML = '<div class="detail-empty">Folder deleted</div>';
-}
-
-// ── Media/device actions ──
-async function deleteMedia(fileId) {
-  if (!confirm('Delete this file?')) return;
-  await apiFetch(`/media/${fileId}`, { method: 'DELETE' });
-  toast('Deleted ✓'); selectedId = null;
-  await loadMedia(); renderMediaList();
-  document.getElementById('detailPanel').innerHTML = '<div class="detail-empty">File deleted</div>';
-}
-
-async function unassignMedia(mediaId, deviceId) {
-  const fd = new FormData();
-  fd.append('device_ids', deviceId);
-  await apiFetch(`/media/${mediaId}/unassign`, { method: 'POST', body: fd });
-  toast('Unassigned ✓'); selectMedia(mediaId);
-}
-
-async function unassignFromDevice(mediaId, deviceId) {
-  const fd = new FormData();
-  fd.append('device_ids', deviceId);
-  await apiFetch(`/media/${mediaId}/unassign`, { method: 'POST', body: fd });
-  toast('Unassigned ✓'); selectDevice(deviceId);
-}
-
-async function renameDevice(deviceId, currentName) {
-  const name = prompt('Device name:', currentName);
-  if (!name || name === currentName) return;
-  const fd = new FormData();
-  fd.append('label', name);
-  await apiFetch(`/admin/devices/${deviceId}`, { method: 'PUT', body: fd });
-  toast('Renamed ✓');
-  await loadDevices();
-  selectDevice(deviceId);
-}
-
-async function changeGroup(deviceId, currentGroup) {
-  const group = prompt('Group name:', currentGroup);
-  if (!group || group === currentGroup) return;
-  const fd = new FormData();
-  fd.append('group_name', group);
-  await apiFetch(`/admin/devices/${deviceId}`, { method: 'PUT', body: fd });
-  toast('Group changed ✓');
-  await loadDevices();
-  selectDevice(deviceId);
-}
-
-async function sendCmd(deviceId, command) {
-  const fd = new FormData();
-  fd.append('command', command);
-  await apiFetch(`/admin/devices/${deviceId}/command`, { method: 'POST', body: fd });
-  toast(`Command "${command}" sent ✓`);
-}
-
-async function unpinDevice(deviceId) {
-  if (!confirm('Release USB pin for this device? Dashboard manifest updates will resume on next poll.')) return;
-  try {
-    await apiFetch(`/admin/devices/${deviceId}/unpin`, { method: 'POST' });
-    toast('USB pin released ✓');
-    await loadDevices();
-    selectDevice(deviceId);
   } catch (e) {
-    toast('Unpin failed: ' + e.message, true);
+    if (showErrors && e.message !== 'unauthorized') toast('Load failed: ' + e.message, true);
   }
 }
+const isOnline = (dev) => dev.last_seen && (Date.now() - Date.parse(dev.last_seen)) < 90000;
+const parseSettings = (dev) => { try { return JSON.parse(dev.settings || '{}'); } catch(e) { return {}; } };
 
-// ── Modal helpers ──
-function closeModal() { document.getElementById('modalContainer').innerHTML = ''; }
+/* ── Header chips ── */
+function renderChips() {
+  if (!summary) return;
+  document.getElementById('chips').innerHTML = `
+    <span class="chip c-on"><b>${summary.devices_online}</b> online</span>
+    <span class="chip c-off"><b>${summary.devices_offline}</b> offline</span>
+    <span class="chip c-pin"><b>${summary.devices_pinned}</b> pinned</span>
+    <span class="chip"><b>${summary.media_files}</b> files · ${fmtSize(summary.media_bytes)}</span>`;
+}
+function renderGroupFilter() {
+  const sel = document.getElementById('groupFilter');
+  const cur = sel.value;
+  const groups = summary ? summary.groups : [];
+  sel.innerHTML = '<option value="">All groups</option>' +
+    groups.map(g => `<option value="${esc(g)}">${esc(g)}</option>`).join('');
+  sel.value = cur;
+}
 
-// ── Utilities ──
-function mediaIcon(f) {
-  const name = (f.original_name || f.filename || '').toLowerCase();
-  if (/\.(mp4|mkv|avi|mov|webm)$/.test(name)) return '🎥';
-  if (/\.(mp3|wav|flac|ogg|aac)$/.test(name)) return '🎵';
+/* ── Devices ── */
+function renderDevices() {
+  const g = document.getElementById('groupFilter').value;
+  const list = g ? devices.filter(d => d.group_name === g) : devices;
+  const el = document.getElementById('devicesView');
+  if (!list.length) {
+    el.innerHTML = `<div class="empty-hint">No devices${g ? ' in this group' : ' registered yet'}.<br>
+      A Pi appears here automatically once it boots with network access to this server.</div>`;
+    return;
+  }
+  el.innerHTML = list.map(d => {
+    const on = isOnline(d);
+    const s = parseSettings(d);
+    const pinIcon = d.pinned ? (d.pinned_source === 'sdcard' ? '💾' : '🔌') : '';
+    return `<div class="dev" onclick="openDrawer('${esc(d.id)}')">
+      <div class="dev-head">
+        <span class="dot ${on ? 'on' : 'off'}"></span>
+        <span class="dev-name">${esc(d.label || d.hostname || d.id)}</span>
+        ${d.pinned ? `<span class="badge pin">${pinIcon} pinned</span>` : ''}
+        ${d.fleet_state ? `<span class="badge state-${esc(d.fleet_state)}">${esc(stateLabel(d.fleet_state))}</span>` : ''}
+      </div>
+      <div class="dev-sub">${esc(d.id)} · ${esc(d.group_name || 'default')}${d.location ? ' · ' + esc(d.location) : ''}</div>
+      <div class="dev-meta">
+        <span>rot <b>${s.rotation ?? 0}°</b></span>
+        <span>slide <b>${s.image_duration_s ?? '–'}s</b></span>
+        <span>vol <b>${s.muted ? '🔇' : (s.volume_pct ?? '–') + '%'}</b></span>
+        <span>${on ? 'seen <b>now</b>' : 'seen <b>' + ago(d.last_seen) + '</b>'}</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+const stateLabel = (s) => ({PLAYING_CONNECTED:'playing', PLAYING_OFFLINE:'offline·playing', NO_MEDIA:'no media'}[s] || String(s).toLowerCase());
+
+/* ── Device drawer ── */
+async function openDrawer(id) {
+  drawerDevice = devices.find(d => d.id === id);
+  if (!drawerDevice) return;
+  document.getElementById('overlay').classList.add('open');
+  document.getElementById('drawer').classList.add('open');
+  renderDrawer(true);
+  try {
+    const a = await api(`/admin/devices/${id}/assignments`);
+    drawerDevice._assignments = a.assignments || [];
+    renderDrawer(false);
+  } catch(e) {}
+}
+function closeDrawer() {
+  drawerDevice = null;
+  document.getElementById('overlay').classList.remove('open');
+  document.getElementById('drawer').classList.remove('open');
+}
+let pendingDur = null, durTimer = null;
+function renderDrawer(resetPending) {
+  const d = drawerDevice;
+  if (!d) return;
+  if (resetPending) { pendingDur = null; clearTimeout(durTimer); }
+  const s = parseSettings(d);
+  const on = isOnline(d);
+  const asg = d._assignments !== undefined ? d._assignments : null;
+  document.getElementById('drawer').innerHTML = `
+    <h2><span class="dot ${on ? 'on' : 'off'}"></span> ${esc(d.label || d.hostname || d.id)}
+      <button class="close" onclick="closeDrawer()">×</button></h2>
+
+    ${d.pinned ? `<div class="section" style="border-color:rgba(178,141,255,.45);background:rgba(178,141,255,.07)">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:20px">${d.pinned_source === 'sdcard' ? '💾' : '🔌'}</span>
+        <div style="flex:1">
+          <b>Pinned to ${d.pinned_source === 'sdcard' ? 'SD card' : 'USB'} media</b>
+          <div style="font-size:11px;color:var(--dim)">Ignores server assignments until released.</div>
+        </div>
+        <button class="btn-ghost" onclick="releasePin('${esc(d.id)}')">Release</button>
+      </div></div>` : ''}
+
+    <div class="section">
+      <h3>Info</h3>
+      <div class="kv">
+        <span class="k">Device ID</span><span class="v">${esc(d.id)}</span>
+        <span class="k">Hostname</span><span class="v">${esc(d.hostname || '—')}</span>
+        <span class="k">IP</span><span class="v">${esc(d.ip_address || '—')}</span>
+        <span class="k">Model</span><span class="v">${esc((d.hw_model || '—').replace('Raspberry Pi','RPi'))}</span>
+        <span class="k">State</span><span class="v">${esc(d.fleet_state || '—')}</span>
+        <span class="k">Version</span><span class="v">${esc((d.current_manifest_version || '—').slice(0,24))}</span>
+        <span class="k">Last seen</span><span class="v">${on ? 'online now' : ago(d.last_seen) + ' ago'}</span>
+      </div>
+    </div>
+
+    <div class="section">
+      <h3>Name & venue</h3>
+      <div class="field-inline"><input id="editLabel" placeholder="Label (e.g. OK Linz — left screen)" value="${esc(d.label || '')}"></div>
+      <div class="field-inline">
+        <input id="editGroup" placeholder="Group" value="${esc(d.group_name || '')}">
+        <input id="editLocation" placeholder="Venue / location" value="${esc(d.location || '')}">
+      </div>
+      <button class="btn-ghost" onclick="saveDeviceMeta('${esc(d.id)}')">Save</button>
+    </div>
+
+    <div class="section">
+      <h3>Playback settings ${on ? '' : '<span style="color:var(--warn)">(offline — applies when back)</span>'}</h3>
+      <div style="font-size:12px;color:var(--dim);margin-bottom:8px">Screen rotation</div>
+      <div class="seg">
+        ${[0,90,180,270].map(r => `<button class="${(s.rotation ?? 0) === r ? 'active' : ''}"
+          onclick="pushSettings('${esc(d.id)}',{rotation:${r}})">${r}°</button>`).join('')}
+      </div>
+      <div style="font-size:12px;color:var(--dim);margin:14px 0 8px">Slide duration (images)</div>
+      <div class="stepper">
+        <button onclick="stepDur('${esc(d.id)}',-5)">−5</button>
+        <button onclick="stepDur('${esc(d.id)}',-1)">−</button>
+        <div class="val"><span id="durShow">${pendingDur ?? (s.image_duration_s ?? 10)}</span><small> sec</small></div>
+        <button onclick="stepDur('${esc(d.id)}',1)">+</button>
+        <button onclick="stepDur('${esc(d.id)}',5)">+5</button>
+      </div>
+      <div style="font-size:12px;color:var(--dim);margin:14px 0 8px">Volume</div>
+      <div class="stepper">
+        <button onclick="pushSettings('${esc(d.id)}',{volume_pct:${Math.max(0,(s.volume_pct ?? 100)-10)}})">−10</button>
+        <div class="val"><span>${s.muted ? '🔇' : (s.volume_pct ?? 100) + '%'}</span></div>
+        <button onclick="pushSettings('${esc(d.id)}',{volume_pct:${Math.min(200,(s.volume_pct ?? 100)+10)}})">+10</button>
+        <button style="width:auto;padding:0 14px;font-size:13px" onclick="pushSettings('${esc(d.id)}',{muted:${s.muted ? 'false' : 'true'}})">${s.muted ? 'Unmute' : 'Mute'}</button>
+      </div>
+      <div class="settings-note">Values shown are what the device last reported. Changes apply live
+        (no playback restart) and the card updates on the next heartbeat (~30s).</div>
+    </div>
+
+    <div class="section">
+      <h3>Assigned media ${asg ? `(${asg.length})` : ''}</h3>
+      ${asg === null ? '<div style="color:var(--dim);font-size:13px">Loading…</div>' :
+        (asg.length ? asg.map(m => `<div class="assigned-item">
+            <span>${mediaIcon(m.original_name || m.filename)}</span>
+            <span class="n">${esc(m.original_name || m.filename)}</span>
+            <button class="link-btn danger" onclick="unassignOne('${esc(m.id)}','${esc(d.id)}')">remove</button>
+          </div>`).join('')
+        : '<div style="color:var(--dim);font-size:13px">Nothing assigned. The device shows its idle card (or pinned media).</div>')}
+      <button class="btn-ghost" style="margin-top:10px" onclick="openAssignForDevice('${esc(d.id)}')">＋ Assign media…</button>
+    </div>
+
+    <div class="section">
+      <h3>Actions</h3>
+      <div class="row-btns">
+        <button class="btn-ghost" onclick="cmd('${esc(d.id)}','identify')">◉ Identify (30s)</button>
+        <button class="btn-ghost" onclick="cmd('${esc(d.id)}','player_restart')">▶ Restart player</button>
+        <button class="btn-ghost" onclick="cmd('${esc(d.id)}','update_now')">⬇ Sync now</button>
+        <button class="btn-ghost" onclick="cmd('${esc(d.id)}','play_sd')">💾 Play from SD</button>
+        <button class="btn-ghost danger" style="grid-column:1/-1" onclick="if(confirm('Reboot ${esc(d.label || d.id)}?'))cmd('${esc(d.id)}','reboot')">⟳ Reboot device</button>
+      </div>
+    </div>`;
+}
+async function saveDeviceMeta(id) {
+  try {
+    await api(`/admin/devices/${id}`, { ...form({
+      label: document.getElementById('editLabel').value,
+      group_name: document.getElementById('editGroup').value,
+      location: document.getElementById('editLocation').value,
+    }), method: 'PUT' });
+    toast('Saved'); refreshAll(false);
+  } catch (e) { toast('Save failed: ' + e.message, true); }
+}
+async function pushSettings(id, patch) {
+  try {
+    const body = {};
+    for (const [k, v] of Object.entries(patch)) body[k] = String(v);
+    await api(`/admin/devices/${id}/settings`, { ...form(body), method: 'PUT' });
+    toast('Settings queued — applies within ~30s');
+    const dev = devices.find(d => d.id === id);
+    if (dev) { const s = parseSettings(dev); Object.assign(s, patch); dev.settings = JSON.stringify(s); }
+    if (drawerDevice && drawerDevice.id === id) renderDrawer(true);
+    renderDevices();
+  } catch (e) { toast('Failed: ' + e.message, true); }
+}
+function stepDur(id, delta) {
+  const dev = devices.find(d => d.id === id);
+  const cur = pendingDur ?? (parseSettings(dev).image_duration_s ?? 10);
+  pendingDur = Math.max(1, Math.min(3600, cur + delta));
+  const el = document.getElementById('durShow');
+  if (el) el.textContent = pendingDur;
+  clearTimeout(durTimer);
+  durTimer = setTimeout(() => { const v = pendingDur; pendingDur = null; pushSettings(id, {image_duration_s: v}); }, 700);
+}
+async function cmd(id, command) {
+  try {
+    await api(`/admin/devices/${id}/command`, form({ command, params: '{}' }));
+    toast(`${command} queued — runs on next heartbeat (≤30s)`);
+  } catch (e) { toast('Failed: ' + e.message, true); }
+}
+async function releasePin(id) {
+  try {
+    await api(`/admin/devices/${id}/unpin`, { method: 'POST' });
+    toast('Pin released — device returns to server media');
+    refreshAll(false);
+  } catch (e) { toast('Failed: ' + e.message, true); }
+}
+async function unassignOne(mediaId, deviceId) {
+  try {
+    await api(`/media/${mediaId}/unassign`, form({ device_ids: deviceId }));
+    toast('Removed');
+    const a = await api(`/admin/devices/${deviceId}/assignments`);
+    if (drawerDevice) { drawerDevice._assignments = a.assignments || []; renderDrawer(false); }
+  } catch (e) { toast('Failed: ' + e.message, true); }
+}
+
+/* ── Media ── */
+function renderMedia() {
+  const rows = document.getElementById('mediaRows');
+  if (!media.length) {
+    rows.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--dim);padding:30px">No media uploaded yet</td></tr>';
+    return;
+  }
+  rows.innerHTML = media.map(m => `<tr>
+    <td class="media-name">${mediaIcon(m.original_name || m.filename)} ${esc(m.original_name || m.filename)}</td>
+    <td>${fmtSize(m.size_bytes)}</td>
+    <td id="asg-${esc(m.id)}">…</td>
+    <td style="text-align:right;white-space:nowrap">
+      <button class="link-btn" onclick="openAssignForMedia('${esc(m.id)}')">assign</button>
+      <button class="link-btn danger" onclick="deleteMedia('${esc(m.id)}','${esc((m.original_name||m.filename||'').replace(/'/g,''))}')">delete</button>
+    </td>
+  </tr>`).join('');
+  media.forEach(async (m) => {
+    try {
+      const a = await api(`/media/${m.id}/assignments`);
+      const el = document.getElementById(`asg-${m.id}`);
+      if (el) el.textContent = (a.assignments || []).length + ' device(s)';
+    } catch(e) {}
+  });
+}
+async function deleteMedia(id, name) {
+  if (!confirm(`Delete "${name}" from the server library?\nDevices keep already-downloaded copies until their next sync.`)) return;
+  try {
+    await api(`/media/${id}`, { method: 'DELETE' });
+    toast('Deleted'); media = media.filter(m => m.id !== id); renderMedia();
+  } catch (e) { toast('Failed: ' + e.message, true); }
+}
+
+/* Upload (multi-file with per-file progress) */
+const dz = document.getElementById('dropzone');
+const fi = document.getElementById('fileInput');
+dz.addEventListener('click', () => fi.click());
+dz.addEventListener('dragover', (e) => { e.preventDefault(); dz.classList.add('drag'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('drag'));
+dz.addEventListener('drop', (e) => { e.preventDefault(); dz.classList.remove('drag'); uploadFiles(e.dataTransfer.files); });
+fi.addEventListener('change', () => { uploadFiles(fi.files); fi.value = ''; });
+
+function uploadFiles(fileList) {
+  [...fileList].forEach(f => uploadOne(f));
+}
+function uploadOne(file) {
+  const wrap = document.getElementById('uploads');
+  const row = document.createElement('div');
+  row.className = 'upload-row';
+  row.innerHTML = `<span style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(file.name)}</span>
+    <div class="bar"><i></i></div><span class="pct" style="width:44px;text-align:right">0%</span>`;
+  wrap.appendChild(row);
+  const bar = row.querySelector('.bar i'), pct = row.querySelector('.pct');
+
+  const fd = new FormData();
+  fd.append('file', file);
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', `${API}/media/upload`);
+  xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+  xhr.upload.onprogress = (e) => {
+    if (e.lengthComputable) {
+      const p = Math.round(e.loaded / e.total * 100);
+      bar.style.width = p + '%'; pct.textContent = p + '%';
+    }
+  };
+  xhr.onload = async () => {
+    if (xhr.status >= 200 && xhr.status < 300) {
+      bar.style.width = '100%'; pct.textContent = '✓';
+      setTimeout(() => row.remove(), 1600);
+      try { const m = await api('/media/list'); media = m.files || []; renderMedia(); } catch(e) {}
+      toast(`Uploaded ${file.name}`);
+    } else {
+      pct.textContent = '✕'; row.style.borderColor = 'var(--bad)';
+      toast(`Upload failed: ${file.name}`, true);
+    }
+  };
+  xhr.onerror = () => { pct.textContent = '✕'; row.style.borderColor = 'var(--bad)'; toast(`Upload failed: ${file.name}`, true); };
+  xhr.send(fd);
+}
+
+/* ── Assign modal ── */
+let assignMediaIds = [];
+function openAssignForMedia(mediaId) {
+  assignMediaIds = [mediaId];
+  const m = media.find(x => x.id === mediaId);
+  document.getElementById('assignTitle').textContent = `Assign "${(m?.original_name || m?.filename || '').slice(0,40)}"`;
+  buildAssignBody();
+  document.getElementById('assignModal').classList.add('open');
+}
+function openAssignForDevice(deviceId) {
+  const body = document.getElementById('assignBody');
+  document.getElementById('assignTitle').textContent = 'Assign media to this device';
+  body.innerHTML = media.length ? media.map(m => `
+    <label class="pick"><input type="checkbox" value="${esc(m.id)}">
+      <span>${mediaIcon(m.original_name || m.filename)} ${esc(m.original_name || m.filename)}</span>
+      <span class="g">${fmtSize(m.size_bytes)}</span></label>`).join('')
+    : '<div style="color:var(--dim);padding:20px;text-align:center">No media in the library yet — upload in the Media tab.</div>';
+  document.getElementById('assignConfirm').onclick = async () => {
+    const ids = [...body.querySelectorAll('input:checked')].map(i => i.value);
+    if (!ids.length) return closeAssign();
+    try {
+      for (const mid of ids) await api(`/media/${mid}/assign`, form({ device_ids: deviceId }));
+      toast(`${ids.length} file(s) assigned — device syncs within ~30s`);
+      closeAssign();
+      const a = await api(`/admin/devices/${deviceId}/assignments`);
+      if (drawerDevice) { drawerDevice._assignments = a.assignments || []; renderDrawer(false); }
+    } catch (e) { toast('Assign failed: ' + e.message, true); }
+  };
+  document.getElementById('assignModal').classList.add('open');
+}
+function buildAssignBody() {
+  const body = document.getElementById('assignBody');
+  const groups = {};
+  devices.forEach(d => { (groups[d.group_name || 'default'] ||= []).push(d); });
+  body.innerHTML = Object.entries(groups).map(([g, devs]) => `
+    <div class="pick-group" data-group="${esc(g)}" onclick="toggleGroup(this)">▸ ${esc(g)} <span style="color:var(--dim)">(${devs.length}) — tap to select all</span></div>
+    ${devs.map(d => `<label class="pick" data-group="${esc(g)}">
+      <input type="checkbox" value="${esc(d.id)}">
+      <span class="dot ${isOnline(d) ? 'on' : 'off'}" style="width:8px;height:8px"></span>
+      <span>${esc(d.label || d.hostname || d.id)}</span>
+      <span class="g">${esc(d.id.slice(-6))}</span>
+    </label>`).join('')}`).join('');
+  document.getElementById('assignConfirm').onclick = confirmAssign;
+}
+function toggleGroup(el) {
+  const g = el.dataset.group;
+  const boxes = [...document.querySelectorAll(`#assignBody label.pick`)]
+    .filter(l => l.dataset.group === g).map(l => l.querySelector('input'));
+  const anyOff = boxes.some(b => !b.checked);
+  boxes.forEach(b => b.checked = anyOff);
+}
+async function confirmAssign() {
+  const ids = [...document.querySelectorAll('#assignBody input:checked')].map(i => i.value);
+  if (!ids.length) return closeAssign();
+  try {
+    for (const mid of assignMediaIds) {
+      await api(`/media/${mid}/assign`, form({ device_ids: ids.join(',') }));
+    }
+    toast(`Assigned to ${ids.length} device(s) — they sync within ~30s`);
+    closeAssign(); renderMedia();
+  } catch (e) { toast('Assign failed: ' + e.message, true); }
+}
+function closeAssign() { document.getElementById('assignModal').classList.remove('open'); }
+
+/* ── Tabs / misc ── */
+function switchTab(tab) {
+  currentTab = tab;
+  document.getElementById('tabDevices').classList.toggle('active', tab === 'devices');
+  document.getElementById('tabMedia').classList.toggle('active', tab === 'media');
+  document.getElementById('devicesView').style.display = tab === 'devices' ? 'grid' : 'none';
+  document.getElementById('mediaView').style.display = tab === 'media' ? 'block' : 'none';
+  document.getElementById('groupFilter').style.display = tab === 'devices' ? 'block' : 'none';
+  if (tab === 'media') api('/media/list').then(m => { media = m.files || []; renderMedia(); }).catch(()=>{});
+}
+function mediaIcon(name) {
+  const ext = (name || '').split('.').pop().toLowerCase();
+  if (['mp4','mkv','mov','webm','avi','m4v'].includes(ext)) return '🎥';
+  if (['mp3','wav','flac','ogg','aac'].includes(ext)) return '🎵';
   return '🖼';
 }
-function fmtBytes(b) {
-  if (!b) return '—';
-  if (b < 1024) return b + ' B';
-  if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
-  if (b < 1073741824) return (b/1048576).toFixed(1) + ' MB';
-  return (b/1073741824).toFixed(2) + ' GB';
+function fmtSize(b) {
+  if (b == null) return '—';
+  if (b > 1073741824) return (b/1073741824).toFixed(1) + ' GB';
+  if (b > 1048576) return (b/1048576).toFixed(1) + ' MB';
+  return Math.max(1, Math.round(b/1024)) + ' KB';
 }
-function fmtUptime(s) {
-  const d = Math.floor(s/86400), h = Math.floor((s%86400)/3600);
-  return d > 0 ? `${d}d ${h}h` : `${h}h ${Math.floor((s%3600)/60)}m`;
+function ago(ts) {
+  if (!ts) return 'never';
+  const s = Math.floor((Date.now() - Date.parse(ts)) / 1000);
+  if (s < 60) return s + 's';
+  if (s < 3600) return Math.floor(s/60) + 'm';
+  if (s < 86400) return Math.floor(s/3600) + 'h';
+  return Math.floor(s/86400) + 'd';
 }
-function timeAgo(iso) {
-  if (!iso) return 'never';
-  // Handle ISO with timezone offset (+00:00) or trailing Z
-  let d = new Date(iso);
-  if (isNaN(d.getTime())) d = new Date(iso + 'Z');
-  if (isNaN(d.getTime())) return iso.substring(0, 16);
-  const s = Math.floor((Date.now() - d) / 1000);
-  if (s < 0) return 'just now';
-  if (s < 60) return `${s}s ago`;
-  if (s < 3600) return `${Math.floor(s/60)}m ago`;
-  if (s < 86400) return `${Math.floor(s/3600)}h ago`;
-  return `${Math.floor(s/86400)}d ago`;
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
-function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
-function toast(msg, err) {
+function toast(msg, isErr) {
   const el = document.createElement('div');
-  el.className = 'toast' + (err ? ' error' : '');
+  el.className = 'toast' + (isErr ? ' err' : '');
   el.textContent = msg;
-  document.body.appendChild(el);
-  setTimeout(() => el.remove(), 3000);
+  document.getElementById('toasts').appendChild(el);
+  setTimeout(() => el.remove(), 3200);
 }
 
-async function refreshAll() {
+/* ── Boot ── */
+(async function boot() {
+  if (!token) return showLogin();
   try {
-    await Promise.all([loadDevices(), loadMedia()]);
-    renderList();
-  } catch (e) { console.error(e); }
-}
-
-// ── Init ──
-(async () => {
-  if (token) {
-    try { await apiFetch('/admin/devices'); hideLogin(); refreshAll(); }
-    catch { showLogin(); }
-  } else { showLogin(); }
-  setInterval(refreshAll, 30000);
+    const h = await fetch(`${API}/health`).then(r => r.json()).catch(() => null);
+    if (h) document.getElementById('verLabel').textContent = 'v' + (h.version || '');
+    await api('/admin/summary');   // token check
+    showApp();
+  } catch (e) { showLogin(); }
 })();
 </script>
 </body>
