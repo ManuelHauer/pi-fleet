@@ -1,15 +1,23 @@
 #!/usr/bin/env python3
 """
-Fleet Onboarding Service — Main orchestrator.
-Runs as systemd service on first boot (before fleet-client).
+Fleet Onboarding Service — main orchestrator (v0.3, NetworkManager-based).
 
-Flow:
-1. Check if Wi-Fi credentials exist
-2. If yes → skip onboarding, exit (let fleet-client handle things)
-3. If no → start AP + captive portal + HDMI status
-4. Wait for successful connection
-5. Exit (fleet-client takes over)
+Runs on every boot until /etc/fleet-client/onboard-done exists (systemd
+ConditionPathExists). Order of attempts:
+
+  1. fleet-setup.toml (pre-primed SD card) — apply [device]/[player]/[server],
+     and if a [wifi] block is present, write the venue profile and connect.
+     → zero-touch onboarding, no phone needed.
+  2. Existing venue profile (fleet-venue) — reconnect.
+  3. USB stick wifi.json — legacy fallback, kept from v0.2.
+  4. Captive portal — hotspot AEC-PI-XXXX + phone setup page.
+
+Success in any path → optional Tailscale mesh join (non-fatal) → write
+onboard-done → clear the on-screen setup card. The captive portal never
+times out: it waits for a technician for as long as it takes, while the
+player/USB/SD kiosk paths keep working independently.
 """
+import json
 import logging
 import os
 import shutil
@@ -19,30 +27,25 @@ import threading
 import time
 from pathlib import Path
 
-# Add parent to path for imports
 sys.path.insert(0, os.path.dirname(__file__))
 
-import wifi_manager
-import ap_manager
+import nm_manager
 import hdmi_status
 import captive_portal
+import setup_config
 
 TAILSCALE_AUTHKEY_FILE = Path("/etc/fleet-client/tailscale-authkey")
+ONBOARD_DONE = Path("/etc/fleet-client/onboard-done")
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler("/var/log/fleet-onboard.log", mode="a"),
-    ]
+    handlers=[logging.StreamHandler()],
 )
 log = logging.getLogger("onboard-service")
 
 
 def get_device_id() -> str:
-    """Stable device ID derived from Pi SoC serial; survives SD cloning."""
-    # Delegates to client/identity.py which is the canonical source.
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from identity import device_id
     return device_id()
@@ -50,16 +53,12 @@ def get_device_id() -> str:
 
 def _tailscale_up(authkey: str, hostname: str, timeout_sec: int = 60) -> bool:
     """Bring up Tailscale. Non-fatal: returns False if it can't join.
-
-    The Pi keeps onboarding-complete state regardless of the result — offline
-    fallback in fleet-client handles a missing mesh. This function only
-    returns True if `tailscale ip -4` confirms a tailnet address.
-    """
+    Meshless deployments (public HTTPS fleet server) simply skip this."""
     if not authkey:
-        log.warning("No Tailscale authkey present — skipping mesh join")
+        log.info("No Tailscale authkey present — skipping mesh join")
         return False
     if shutil.which("tailscale") is None:
-        log.error("tailscale binary missing from golden image")
+        log.warning("tailscale binary not installed — skipping mesh join")
         return False
     try:
         subprocess.run(["sudo", "systemctl", "enable", "--now", "tailscaled"],
@@ -68,7 +67,7 @@ def _tailscale_up(authkey: str, hostname: str, timeout_sec: int = 60) -> bool:
                f"--authkey={authkey}",
                f"--hostname={hostname}",
                "--accept-routes=false",
-               "--ssh"]  # Tailscale SSH for ops access
+               "--ssh"]
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_sec)
         if r.returncode != 0:
             log.error(f"tailscale up failed: {r.stderr.strip()}")
@@ -86,10 +85,6 @@ def _tailscale_up(authkey: str, hostname: str, timeout_sec: int = 60) -> bool:
 
 
 def join_mesh_if_configured(device_id: str) -> bool:
-    """Read the per-SD authkey file (baked at flash time) and try to join.
-
-    Non-fatal in every failure mode. Returns True only on confirmed join.
-    """
     authkey = ""
     if TAILSCALE_AUTHKEY_FILE.exists():
         try:
@@ -99,112 +94,126 @@ def join_mesh_if_configured(device_id: str) -> bool:
     return _tailscale_up(authkey, hostname=device_id)
 
 
-def check_usb_fallback() -> bool:
-    """Check for USB stick with wifi.json fallback credentials."""
-    import json
-    from pathlib import Path
-    
-    usb_paths = [
-        Path("/media/pi"),
-        Path("/media/usb"),
-        Path("/mnt/usb"),
-    ]
-    
-    for base in usb_paths:
+def check_usb_wifi_fallback() -> bool:
+    """Legacy path: wifi.json on a mounted USB stick."""
+    for base in (Path("/media/pi"), Path("/media/usb"), Path("/mnt/usb")):
         if not base.exists():
             continue
-        for mount in base.iterdir():
+        try:
+            mounts = list(base.iterdir())
+        except OSError:
+            continue
+        for mount in mounts:
             wifi_file = mount / "wifi.json"
-            if wifi_file.exists():
-                try:
-                    data = json.loads(wifi_file.read_text())
-                    ssid = data.get("ssid")
-                    password = data.get("password")
-                    label = data.get("label", "")
-                    if ssid and password:
-                        log.info(f"USB fallback found: SSID={ssid}")
-                        if wifi_manager.write_credentials(ssid, password):
-                            return True
-                except Exception as e:
-                    log.warning(f"USB wifi.json parse error: {e}")
-    
+            if not wifi_file.exists():
+                continue
+            try:
+                data = json.loads(wifi_file.read_text())
+                ssid, password = data.get("ssid"), data.get("password")
+                if ssid and password:
+                    log.info(f"USB wifi.json found: SSID={ssid}")
+                    return nm_manager.write_venue_profile(ssid, password)
+            except Exception as e:
+                log.warning(f"USB wifi.json parse error: {e}")
     return False
+
+
+def finish(device_id: str, via: str):
+    """Common success path."""
+    ssid, ip = nm_manager.get_current_ssid(), nm_manager.get_ip()
+    log.info(f"Onboarding complete via {via}: SSID={ssid} IP={ip}")
+    join_mesh_if_configured(device_id)
+    try:
+        ONBOARD_DONE.parent.mkdir(parents=True, exist_ok=True)
+        ONBOARD_DONE.write_text(f"{via} {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}\n")
+    except Exception as e:
+        log.error(f"onboard-done write failed: {e}")
+    hdmi_status.show_connected(ssid, ip, device_id)
+    time.sleep(8)  # let the tech read it
+    hdmi_status.clear()
 
 
 def main():
     log.info("=" * 50)
-    log.info("Fleet Onboarding Service starting")
+    log.info("Fleet Onboarding Service starting (v0.3 / NetworkManager)")
     log.info("=" * 50)
-    
+
     device_id = get_device_id()
     log.info(f"Device ID: {device_id}")
-    
-    # Check if already configured
-    if wifi_manager.has_wifi_credentials():
-        current = wifi_manager.get_current_ssid()
-        if current:
-            log.info(f"Already connected to: {current} — skipping onboarding")
-            join_mesh_if_configured(device_id)
-            return
-        else:
-            log.info("Credentials exist but not connected — attempting connection…")
-            if wifi_manager.connect(timeout_sec=20):
-                ip = wifi_manager.get_ip()
-                log.info(f"Connected: {wifi_manager.get_current_ssid()} @ {ip}")
-                join_mesh_if_configured(device_id)
-                return
-            log.warning("Stored credentials failed — entering setup mode")
 
-    # Check USB fallback
-    if check_usb_fallback():
-        log.info("USB credentials loaded — attempting connection…")
-        if wifi_manager.connect(timeout_sec=20):
-            ip = wifi_manager.get_ip()
-            log.info(f"Connected via USB config: {wifi_manager.get_current_ssid()} @ {ip}")
-            join_mesh_if_configured(device_id)
-            return
-    
-    # No credentials — enter setup mode
-    log.info("No Wi-Fi credentials — entering AP setup mode")
-    
-    # Start AP
-    if not ap_manager.start_ap():
-        log.error("Failed to start AP — cannot proceed with onboarding")
-        hdmi_status.show_failed("AP setup failed. Check hardware.")
+    # 1. Pre-primed SD card config
+    cfg, cfg_path, is_new = setup_config.load_setup()
+    if cfg and is_new:
+        log.info(f"Applying pre-primed setup from {cfg_path}")
+        setup_config.apply_non_wifi(cfg)
+        wifi = setup_config.wifi_block(cfg)
+        if wifi:
+            if wifi.get("country"):
+                nm_manager.set_wifi_country(wifi["country"])
+            hdmi_status.show_connecting(wifi["ssid"])
+            if nm_manager.write_venue_profile(wifi["ssid"], wifi["password"],
+                                              hidden=wifi["hidden"]):
+                if nm_manager.connect_venue(timeout_sec=60):
+                    setup_config.mark_applied(cfg_path)
+                    finish(device_id, via="fleet-setup.toml")
+                    return
+                log.warning("Pre-primed Wi-Fi failed to connect — "
+                            "falling through to portal setup")
+        setup_config.mark_applied(cfg_path)  # non-wifi parts are applied either way
+
+    # 2a. Already online? Wi-Fi may be configured OUTSIDE our system (Imager
+    # custom.toml, Ethernet, manual nmcli) — never tear that down with an AP.
+    if nm_manager.get_ip():
+        finish(device_id, via=f"already connected ({nm_manager.get_current_ssid() or 'ethernet'})")
         return
-    
-    ap_name = ap_manager.get_ap_name()
-    ap_pass = ap_manager.get_ap_password()
-    
-    # Show setup screen on HDMI
-    hdmi_status.show_setup_screen(ap_name, ap_pass)
-    
-    # Start captive portal in a thread
-    shutdown_event = threading.Event()
+
+    # 2b. Existing venue profile (previous onboarding)
+    if nm_manager.has_venue_profile():
+        log.info("Venue profile exists — attempting reconnect…")
+        if nm_manager.connect_venue(timeout_sec=45):
+            finish(device_id, via="existing profile")
+            return
+        log.warning("Stored profile failed — entering setup mode")
+
+    # 3. USB wifi.json fallback
+    if check_usb_wifi_fallback() and nm_manager.connect_venue(timeout_sec=45):
+        finish(device_id, via="usb wifi.json")
+        return
+
+    # 4. Captive portal
+    log.info("No usable Wi-Fi — entering AP setup mode")
+
+    # Scan BEFORE the hotspot claims the radio; the portal serves this cache.
+    networks = nm_manager.scan_networks()
+    log.info(f"Pre-AP scan: {len(networks)} networks visible")
+
+    if not nm_manager.start_hotspot():
+        log.error("Hotspot start failed — cannot onboard interactively")
+        hdmi_status.show_failed("Hotspot could not start. Check hardware / reboot.")
+        # Exit non-zero → systemd Restart=on-failure retries in a minute.
+        sys.exit(1)
+
+    hdmi_status.show_setup_screen(nm_manager.get_ap_name(),
+                                  nm_manager.get_ap_password(),
+                                  portal_url=f"http://{nm_manager.AP_IP}")
+
+    done_event = threading.Event()
     portal_thread = threading.Thread(
         target=captive_portal.run_portal,
-        args=(device_id, shutdown_event),
-        daemon=True
+        args=(device_id, done_event, networks),
+        daemon=True,
     )
     portal_thread.start()
-    
-    log.info(f"Setup mode active: AP={ap_name} pass={ap_pass}")
-    log.info("Waiting for technician to complete Wi-Fi setup…")
-    
-    # Wait for successful connection (portal sets the event)
-    while not shutdown_event.is_set():
-        shutdown_event.wait(timeout=5)
-    
-    # Give the portal response time to render
-    time.sleep(3)
 
-    # Captive portal joined a real Wi-Fi network → try mesh join
-    join_mesh_if_configured(device_id)
+    log.info(f"Setup mode active: AP={nm_manager.get_ap_name()} — waiting for technician "
+             "(no timeout; player/USB/SD keep working independently)")
 
-    log.info("Onboarding complete — fleet-client will take over")
+    while not done_event.is_set():
+        done_event.wait(timeout=5)
 
-    # Final cleanup: make sure AP is off
-    ap_manager.stop_ap()
+    time.sleep(2)
+    finish(device_id, via="captive portal")
+    nm_manager.stop_hotspot()
 
 
 if __name__ == "__main__":

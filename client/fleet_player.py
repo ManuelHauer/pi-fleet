@@ -12,12 +12,14 @@ This split exists so mpv crashes recover in seconds (via systemd Restart=always)
 without taking the management daemon down with it.
 
 Files watched:
-  /opt/fleet-media/playlist.current   plain text, one media path per line
-                                      missing/empty → play idle screen
-  /opt/fleet-media/osd.json           {"message": str, "expires_at": ISO,
-                                       "force_until": ISO?, "kind": "info|warn|ok"}
-                                      missing → no overlay
-  /opt/fleet-media/.restart-player    touch this mtime to force mpv restart
+  /opt/fleet-media/playlist.current      plain text, one media path per line
+                                         missing/empty → play idle screen
+  /opt/fleet-media/osd.json              {"message": str, "expires_at": ISO,
+                                          "force_until": ISO?, "kind": "info|warn|ok"}
+                                         missing → no overlay
+  /opt/fleet-media/.restart-player       touch this mtime to force mpv restart
+  /opt/fleet-media/player-settings.json  rotation / image duration / volume / mute
+                                         (applied LIVE via mpv IPC, no restart)
 
 Files produced:
   /opt/fleet-media/system/idle.png    auto-regenerated idle screen
@@ -34,6 +36,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from player_settings import load_settings, save_settings, settings_mtime, SETTINGS_FILE
+
 # ── Configuration ──
 
 MEDIA_BASE = Path("/opt/fleet-media")
@@ -42,6 +46,8 @@ OSD_FILE = MEDIA_BASE / "osd.json"
 RESTART_TRIGGER = MEDIA_BASE / ".restart-player"
 SYSTEM_DIR = MEDIA_BASE / "system"
 IDLE_IMAGE = SYSTEM_DIR / "idle.png"
+SETUP_IMAGE = SYSTEM_DIR / "setup.png"
+ONBOARD_FLAG = MEDIA_BASE / ".onboarding-active"
 LOCAL_STATE = Path("/etc/fleet-client/local-state.json")
 MPV_IPC_SOCKET = "/tmp/fleet-mpv-ipc"
 
@@ -79,7 +85,7 @@ def _read_ip() -> str:
         s.connect(("8.8.8.8", 80))
         ip = s.getsockname()[0]
         s.close()
-        if not ip.startswith("169.254") and not ip.startswith("192.168.4"):
+        if not ip.startswith(("169.254", "192.168.4", "10.42.")):
             return ip
     except Exception:
         pass
@@ -87,7 +93,7 @@ def _read_ip() -> str:
     try:
         out = subprocess.check_output(["hostname", "-I"], text=True, timeout=5).strip()
         for ip in out.split():
-            if not ip.startswith("169.254") and not ip.startswith("192.168.4"):
+            if not ip.startswith(("169.254", "192.168.4", "10.42.")):
                 return ip
     except Exception:
         pass
@@ -212,23 +218,24 @@ def _ipc_alive() -> bool:
     return _ipc_send({"command": ["get_property", "mpv-version"]}, timeout=1.0) is not None
 
 
-# ── Playlist & volume ──
+# ── Playlist & settings ──
 
-def _load_saved_volume() -> int:
-    """Read persisted volume (0–100). Default 100."""
+def _migrate_legacy_volume():
+    """One-time: carry the pre-v0.3 volume (local-state.json) into
+    player-settings.json so an upgraded Pi keeps its level."""
+    if SETTINGS_FILE.exists() or not LOCAL_STATE.exists():
+        return
     try:
-        if LOCAL_STATE.exists():
-            data = json.loads(LOCAL_STATE.read_text())
-            v = data.get("volume_pct")
-            if isinstance(v, (int, float)):
-                return max(0, min(200, int(v)))
-            # Legacy VLC scale (0–512) → 0–100
-            legacy = data.get("volume")
-            if isinstance(legacy, (int, float)):
-                return max(0, min(100, round(legacy / 256 * 100)))
+        data = json.loads(LOCAL_STATE.read_text())
+        v = data.get("volume_pct")
+        if not isinstance(v, (int, float)):
+            legacy = data.get("volume")  # legacy VLC scale (0–512)
+            v = round(legacy / 256 * 100) if isinstance(legacy, (int, float)) else None
+        if v is not None:
+            save_settings({"volume_pct": int(v)}, updated_by="default")
+            log.info(f"Migrated legacy volume {v}% into player-settings.json")
     except Exception:
         pass
-    return 100
 
 
 def _read_playlist() -> list:
@@ -244,7 +251,8 @@ def _read_playlist() -> list:
 
 
 def _playlist_hash() -> str:
-    """Stable hash of current playlist content + restart trigger mtime."""
+    """Stable hash of current playlist content + restart trigger mtime +
+    onboarding state, so entering/leaving setup mode also reloads mpv."""
     h = hashlib.sha256()
     if PLAYLIST_FILE.exists():
         try:
@@ -255,6 +263,12 @@ def _playlist_hash() -> str:
         try:
             h.update(str(RESTART_TRIGGER.stat().st_mtime).encode())
         except Exception:
+            pass
+    if ONBOARD_FLAG.exists():
+        h.update(b"onboarding")
+        try:
+            h.update(str(SETUP_IMAGE.stat().st_mtime).encode())
+        except OSError:
             pass
     return h.hexdigest()
 
@@ -268,6 +282,7 @@ class MpvProcess:
         self.proc: Optional[subprocess.Popen] = None
         self.started_at = 0.0
         self.playlist_hash = ""
+        self.is_idle = False
 
     def is_alive(self) -> bool:
         return self.proc is not None and self.proc.poll() is None
@@ -295,21 +310,28 @@ class MpvProcess:
     def start(self, files: list):
         """Launch mpv playing the given files, looping forever via DRM/KMS."""
         if not files:
-            # Idle path — render and play idle image
-            if not IDLE_IMAGE.exists():
-                render_idle_screen()
-            files = [str(IDLE_IMAGE)] if IDLE_IMAGE.exists() else []
+            # Onboarding owns the screen while its flag is up (setup card with
+            # the AP credentials — v0.2 hid these behind the idle screen).
+            if ONBOARD_FLAG.exists() and SETUP_IMAGE.exists():
+                files = [str(SETUP_IMAGE)]
+            else:
+                # Idle path — render and play idle image
+                if not IDLE_IMAGE.exists():
+                    render_idle_screen()
+                files = [str(IDLE_IMAGE)] if IDLE_IMAGE.exists() else []
 
         if not files:
             log.error("No files to play and no idle image available")
             return
 
-        volume = _load_saved_volume()
+        settings = load_settings()
         # Build a temp playlist file mpv will read line-by-line
         pl = MEDIA_BASE / "mpv-playlist.tmp"
         pl.write_text("\n".join(files) + "\n")
 
-        is_idle = files == [str(IDLE_IMAGE)]
+        # Static system cards (idle / setup) stay up indefinitely
+        is_idle = files in ([str(IDLE_IMAGE)], [str(SETUP_IMAGE)])
+        self.is_idle = is_idle
 
         cmd = [
             "mpv",
@@ -322,7 +344,9 @@ class MpvProcess:
             "--keep-open=yes",
             "--idle=yes",  # don't exit on playlist end
             f"--input-ipc-server={MPV_IPC_SOCKET}",
-            f"--volume={volume}",
+            f"--volume={settings['volume_pct']}",
+            f"--mute={'yes' if settings['muted'] else 'no'}",
+            f"--video-rotate={settings['rotation']}",
             "--osd-font-size=28",
             "--osd-border-size=2",
             "--osd-color=#FFFFFFFF",
@@ -331,10 +355,12 @@ class MpvProcess:
         if is_idle:
             cmd.append("--image-display-duration=inf")
         else:
-            cmd.append("--image-display-duration=10")
+            cmd.append(f"--image-display-duration={settings['image_duration_s']}")
         cmd.append(f"--playlist={pl}")
 
-        log.info(f"Starting mpv: {len(files)} item(s), idle={is_idle}, vol={volume}")
+        log.info(f"Starting mpv: {len(files)} item(s), idle={is_idle}, "
+                 f"vol={settings['volume_pct']} rot={settings['rotation']} "
+                 f"imgdur={settings['image_duration_s']}s")
         try:
             self.stop()
             self.proc = subprocess.Popen(
@@ -352,6 +378,33 @@ class MpvProcess:
         except Exception as e:
             log.error(f"mpv start failed: {e}")
             self.proc = None
+
+
+# ── Live settings apply ──
+
+def apply_settings_live(mpv: "MpvProcess") -> bool:
+    """Push the current player-settings.json values into the running mpv via
+    IPC. No restart: rotation, image duration, volume and mute are all
+    runtime-settable properties. Returns True if mpv answered."""
+    if not _ipc_alive():
+        return False
+    s = load_settings()
+    ok = True
+    for prop, value in (
+        ("video-rotate", s["rotation"]),
+        ("volume", s["volume_pct"]),
+        ("mute", s["muted"]),
+    ):
+        r = _ipc_send({"command": ["set_property", prop, value]})
+        ok = ok and bool(r) and r.get("error") == "success"
+    # While idle we keep image-display-duration=inf so the info card stays up.
+    if not mpv.is_idle:
+        r = _ipc_send({"command": ["set_property", "image-display-duration",
+                                   s["image_duration_s"]]})
+        ok = ok and bool(r) and r.get("error") == "success"
+    log.info(f"Settings applied live: rot={s['rotation']} vol={s['volume_pct']} "
+             f"mute={s['muted']} imgdur={s['image_duration_s']}s (ok={ok})")
+    return ok
 
 
 # ── OSD overlay ──
@@ -417,6 +470,9 @@ def main():
     render_idle_screen()
     last_idle_render = time.time()
 
+    _migrate_legacy_volume()
+    last_settings_mtime = settings_mtime()
+
     mpv = MpvProcess()
     mpv.start(_read_playlist())
 
@@ -439,12 +495,18 @@ def main():
                     log.warning("mpv died — restarting")
                     mpv.start(_read_playlist())
 
-            # 3. OSD overlay every 1s
+            # 3. Settings changed? Apply live via IPC — playback keeps running.
+            sm = settings_mtime()
+            if sm != last_settings_mtime:
+                last_settings_mtime = sm
+                apply_settings_live(mpv)
+
+            # 4. OSD overlay every 1s
             if now - last_osd_tick >= 1.0:
                 _push_osd()
                 last_osd_tick = now
 
-            # 4. Re-render idle screen periodically (in case IP changed)
+            # 5. Re-render idle screen periodically (in case IP changed)
             if now - last_idle_render > IDLE_REDRAW_INTERVAL:
                 # Only re-render when actually showing idle (cheap optimization)
                 if not _read_playlist():

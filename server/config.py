@@ -27,6 +27,12 @@ DEVICE_PSK = os.environ.get("FLEET_DEVICE_PSK", "aec-device-psk-2026")
 # Update cadence default (seconds) — advisory for clients
 DEFAULT_POLL_INTERVAL = int(os.environ.get("FLEET_POLL_INTERVAL", "30"))  # 30s
 
+# Ops toggles
+# Disable the remote-shell command entirely (recommended on a shared/public server)
+DISABLE_SHELL = os.environ.get("FLEET_DISABLE_SHELL", "0") in ("1", "true", "yes")
+# Heartbeat rows kept per device (pruned in the background)
+HEARTBEAT_KEEP = int(os.environ.get("FLEET_HEARTBEAT_KEEP", "500"))
+
 # Ensure dirs
 MEDIA_DIR.mkdir(parents=True, exist_ok=True)
 DATA_DIR.mkdir(parents=True, exist_ok=True)
