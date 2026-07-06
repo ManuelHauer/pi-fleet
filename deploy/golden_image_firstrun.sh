@@ -75,8 +75,21 @@ if [ "$NET_OK" != "1" ]; then
   exit 1
 fi
 
-echo "Installing packages…"
 export DEBIAN_FRONTEND=noninteractive
+
+# ── FLEET-MEDIA partition FIRST — this GROWS the root filesystem (auto-expand
+# was disabled at flash time so we could carve out the media partition). The
+# stock image root is only ~2 GB; apt would run out of space downloading mpv &
+# co. before we ever got here. setup_media_partition.sh grows rootfs to
+# ROOTFS_GB, then formats the rest as FLEET-MEDIA (installing exfatprogs itself
+# once the rootfs has room). MUST precede the package install. ──
+if [ -x "$FLEET_DIR/deploy/setup_media_partition.sh" ]; then
+  ROOTFS_GB="$ROOTFS_GB" bash "$FLEET_DIR/deploy/setup_media_partition.sh" || {
+    echo "WARNING: media partition / rootfs grow failed — continuing (apt may be tight)"
+  }
+fi
+
+echo "Installing packages…"
 apt-get update -qq
 # NetworkManager is the default netstack on Bookworm/Trixie — we standardize
 # on it (nmcli) for venue Wi-Fi AND the onboarding hotspot. No hostapd, no
@@ -98,21 +111,19 @@ cat > /etc/NetworkManager/dnsmasq-shared.d/00-fleet-captive.conf <<'EOF'
 address=/#/10.42.0.1
 EOF
 
-# ── Tailscale (optional mesh; harmless if never joined) ──
+# ── Tailscale (OPTIONAL mesh; non-fatal — a public-HTTPS deployment needs no
+# mesh, and a repo/keyring hiccup must never abort the whole provisioning) ──
 echo "Installing Tailscale…"
 if ! command -v tailscale >/dev/null 2>&1; then
-  curl -fsSL https://pkgs.tailscale.com/stable/raspbian/bookworm.noarmor.gpg \
-      | tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
-  curl -fsSL https://pkgs.tailscale.com/stable/raspbian/bookworm.tailscale-keyring.list \
-      | tee /etc/apt/sources.list.d/tailscale.list
-  apt-get update -qq && apt-get install -y tailscale
-fi
-
-# ── 3. FLEET-MEDIA partition (needs exfatprogs from step 2) ──
-if [ -x "$FLEET_DIR/deploy/setup_media_partition.sh" ]; then
-  ROOTFS_GB="$ROOTFS_GB" bash "$FLEET_DIR/deploy/setup_media_partition.sh" || {
-    echo "WARNING: media partition setup failed — continuing without it"
-  }
+  if curl -fsSL https://pkgs.tailscale.com/stable/raspbian/bookworm.noarmor.gpg \
+        | tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null \
+     && curl -fsSL https://pkgs.tailscale.com/stable/raspbian/bookworm.tailscale-keyring.list \
+        | tee /etc/apt/sources.list.d/tailscale.list >/dev/null; then
+    apt-get update -qq && apt-get install -y tailscale \
+      || echo "WARNING: tailscale install failed — continuing without mesh"
+  else
+    echo "WARNING: tailscale repo setup failed — continuing without mesh"
+  fi
 fi
 
 # ── 4. Fleet code, config, services ──
