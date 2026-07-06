@@ -1,15 +1,18 @@
 [Unit]
 Description=Ars Festival Fleet Wi-Fi Onboarding
-Before=fleet-client.service
-After=network.target
+After=network.target NetworkManager.service
+Wants=NetworkManager.service
 ConditionPathExists=!/etc/fleet-client/onboard-done
 
 [Service]
-Type=oneshot
-RemainAfterExit=yes
+# Long-running (not oneshot): the captive portal waits for a technician for
+# as long as it takes. Nothing orders itself after this unit — the player,
+# USB/SD kiosk paths and local control all work while onboarding is pending.
+# onboard-done is written by onboard_service.py itself on success.
+Type=simple
 ExecStart=/usr/bin/python3 /opt/fleet-client/onboarding/onboard_service.py
-ExecStartPost=/usr/bin/touch /etc/fleet-client/onboard-done
-TimeoutStartSec=600
+Restart=on-failure
+RestartSec=30
 StandardOutput=journal
 StandardError=journal
 

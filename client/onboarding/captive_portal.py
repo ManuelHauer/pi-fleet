@@ -1,48 +1,46 @@
 #!/usr/bin/env python3
 """
-Captive portal web app for Wi-Fi onboarding.
-Runs on the Pi's AP interface at http://192.168.4.1
-Technicians connect via phone and enter venue Wi-Fi credentials.
+Captive portal web app for Wi-Fi onboarding (v0.3, NetworkManager-based).
+
+Runs on the Pi's hotspot at http://10.42.0.1 — a technician connects with a
+phone (AEC-PI-XXXX) and enters venue Wi-Fi credentials.
+
+Connection handling is asynchronous: the phone gets an immediate "connecting…"
+page (the old flow tried to answer AFTER tearing down the AP, so the success
+response never reached the phone). The actual switch runs in a background
+thread; the page polls /api/progress while the AP is still up, and the HDMI
+screen shows the authoritative result throughout.
 """
 import logging
 import threading
 import time
-from flask import Flask, render_template, request, redirect
 
-import wifi_manager
-import ap_manager
+from flask import Flask, render_template, request, redirect, jsonify
+
+import nm_manager
 import hdmi_status
 
 log = logging.getLogger("captive-portal")
 
 app = Flask(__name__, template_folder="templates")
-app.config["SECRET_KEY"] = "fleet-onboard-local"
 
 # State
 _device_id = ""
-_shutdown_flag = threading.Event()
-
-
-def set_device_id(did: str):
-    global _device_id
-    _device_id = did
+_done_event = threading.Event()
+_cached_networks: list = []
+_progress = {"phase": "idle", "ssid": "", "error": ""}
+_connect_lock = threading.Lock()
 
 
 @app.route("/")
 def index():
-    """Main setup page with Wi-Fi scan results."""
-    networks = wifi_manager.scan_networks()
     return render_template("setup.html",
                            device_id=_device_id,
-                           networks=networks)
+                           ap_name=nm_manager.get_ap_name(),
+                           networks=_cached_networks)
 
 
-@app.route("/scan")
-def scan():
-    """Rescan and redirect to main page."""
-    return redirect("/")
-
-
+# Captive-portal detection endpoints of the various OS vendors
 @app.route("/generate_204")
 @app.route("/hotspot-detect.html")
 @app.route("/library/test/success.html")
@@ -50,96 +48,101 @@ def scan():
 @app.route("/connecttest.txt")
 @app.route("/redirect")
 def captive_detect():
-    """Handle captive portal detection from various OS vendors."""
     return redirect("/")
+
+
+def _do_connect(ssid: str, password: str):
+    """Background worker: AP down → join venue Wi-Fi → signal, or AP back up."""
+    global _progress
+    try:
+        hdmi_status.show_connecting(ssid)
+        _progress = {"phase": "connecting", "ssid": ssid, "error": ""}
+
+        # Give the phone a moment to finish loading the status page before
+        # the hotspot (and with it this HTTP connection) goes away.
+        time.sleep(3)
+        nm_manager.stop_hotspot()
+
+        if not nm_manager.write_venue_profile(ssid, password):
+            raise RuntimeError("Could not store Wi-Fi profile")
+
+        if nm_manager.connect_venue(timeout_sec=45):
+            _progress = {"phase": "connected", "ssid": nm_manager.get_current_ssid(),
+                         "error": ""}
+            log.info(f"✅ Connected: {nm_manager.get_current_ssid()} @ {nm_manager.get_ip()}")
+            _done_event.set()
+            return
+
+        raise RuntimeError(f"Could not connect to '{ssid}' — check password and range")
+
+    except Exception as e:
+        log.warning(f"Connect failed: {e}")
+        nm_manager.forget_venue_wifi()
+        hdmi_status.show_failed(str(e))
+        time.sleep(2)
+        nm_manager.start_hotspot()
+        hdmi_status.show_setup_screen(nm_manager.get_ap_name(),
+                                      nm_manager.get_ap_password(),
+                                      portal_url=f"http://{nm_manager.AP_IP}")
+        _progress = {"phase": "failed", "ssid": ssid, "error": str(e)}
 
 
 @app.route("/connect", methods=["POST"])
 def connect():
-    """Process Wi-Fi connection request."""
-    ssid = request.form.get("ssid") or request.form.get("ssid_manual", "")
+    ssid = (request.form.get("ssid") or request.form.get("ssid_manual") or "").strip()
     password = request.form.get("password", "")
-    label = request.form.get("label", "")
 
-    if not ssid or not password:
+    if not ssid:
         return redirect("/")
 
-    log.info(f"Connection request: SSID={ssid}, label={label}")
+    with _connect_lock:
+        if _progress.get("phase") == "connecting":
+            return redirect("/status-page")
+        log.info(f"Connection request: SSID={ssid}")
+        threading.Thread(target=_do_connect, args=(ssid, password),
+                         daemon=True).start()
 
-    # Show connecting on HDMI
-    hdmi_status.show_connecting(ssid)
+    return render_template("status.html", ssid=ssid, device_id=_device_id,
+                           ap_name=nm_manager.get_ap_name())
 
-    # Write credentials
-    if not wifi_manager.write_credentials(ssid, password):
-        hdmi_status.show_failed("Could not save credentials")
-        return render_template("status.html",
-                               success=False,
-                               error="Failed to save Wi-Fi credentials",
-                               device_id=_device_id)
 
-    # Stop AP
-    log.info("Stopping AP for connection attempt…")
-    ap_manager.stop_ap()
-    time.sleep(2)
+@app.route("/status-page")
+def status_page():
+    return render_template("status.html", ssid=_progress.get("ssid", ""),
+                           device_id=_device_id, ap_name=nm_manager.get_ap_name())
 
-    # Try to connect
-    if wifi_manager.connect(timeout_sec=30):
-        ip = wifi_manager.get_ip()
-        current_ssid = wifi_manager.get_current_ssid()
 
-        hdmi_status.show_connected(current_ssid, ip, _device_id)
-        log.info(f"✅ Connected: {current_ssid} @ {ip}")
-
-        # Signal the onboard service to proceed
-        _shutdown_flag.set()
-
-        return render_template("status.html",
-                               success=True,
-                               ssid=current_ssid,
-                               ip=ip,
-                               device_id=_device_id)
-    else:
-        # Connection failed — restart AP for retry
-        hdmi_status.show_failed("Could not connect to network")
-        log.warning("Connection failed, restarting AP…")
-        wifi_manager.remove_credentials()
-        ap_manager.start_ap()
-
-        ap_name = ap_manager.get_ap_name()
-        ap_pass = ap_manager.get_ap_password()
-        hdmi_status.show_setup_screen(ap_name, ap_pass)
-
-        return render_template("status.html",
-                               success=False,
-                               error=f"Could not connect to '{ssid}'. Check password and range.",
-                               device_id=_device_id)
+@app.route("/api/progress")
+def api_progress():
+    return jsonify(_progress)
 
 
 @app.route("/status")
 def status():
-    """Simple status endpoint."""
-    ssid = wifi_manager.get_current_ssid()
-    ip = wifi_manager.get_ip()
     return {
         "device_id": _device_id,
-        "connected": bool(ssid),
-        "ssid": ssid,
-        "ip": ip,
-        "ap_running": ap_manager.is_ap_running(),
+        "connected": bool(nm_manager.get_current_ssid()),
+        "ssid": nm_manager.get_current_ssid(),
+        "ip": nm_manager.get_ip(),
+        "ap_running": nm_manager.is_hotspot_active(),
+        "progress": _progress,
     }
 
 
-def run_portal(device_id: str, shutdown_event: threading.Event = None):
-    """Start the captive portal server."""
-    global _shutdown_flag
-    if shutdown_event:
-        _shutdown_flag = shutdown_event
-    set_device_id(device_id)
+def run_portal(device_id: str, done_event: threading.Event = None,
+               networks: list = None):
+    global _device_id, _done_event, _cached_networks
+    _device_id = device_id
+    if done_event is not None:
+        _done_event = done_event
+    _cached_networks = networks or []
 
-    log.info(f"Starting captive portal on {ap_manager.AP_IP}:80")
+    log.info(f"Starting captive portal on {nm_manager.AP_IP}:80 "
+             f"({len(_cached_networks)} cached networks)")
     app.run(host="0.0.0.0", port=80, debug=False, use_reloader=False)
 
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    run_portal("test-device-0000")
+    run_portal("test-device-0000", threading.Event(),
+               [{"ssid": "TestNet", "signal": 70, "security": "WPA2"}])

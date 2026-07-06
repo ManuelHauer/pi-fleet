@@ -5,14 +5,17 @@ Ars Festival Media Client — management daemon (does NOT own mpv).
 Responsibilities:
   - Probe the server every 10s, poll manifests every 30s when connected.
   - Atomically swap the `current` symlink on manifest update.
+  - Watch the SD card's FLEET-MEDIA partition and pin to it when its
+    content changes (zero-copy: playback runs straight off the partition).
   - Maintain a derived state machine: NO_MEDIA / PLAYING_CONNECTED / PLAYING_OFFLINE.
   - Write the OSD overlay file for fleet_player.py to render.
-  - Send heartbeats, handle pin state, accept admin commands.
+  - Send heartbeats (incl. playback settings), handle pin state, run commands.
 
 mpv lifecycle is handled by fleet_player.py. The handoff is purely file-based:
-  /opt/fleet-media/playlist.current   — one media path per line
-  /opt/fleet-media/.restart-player    — mtime change forces player reload
-  /opt/fleet-media/osd.json           — overlay state (message + timing)
+  /opt/fleet-media/playlist.current      — one media path per line
+  /opt/fleet-media/.restart-player       — mtime change forces player reload
+  /opt/fleet-media/osd.json              — overlay state (message + timing)
+  /opt/fleet-media/player-settings.json  — rotation / image duration / volume
 """
 import hashlib
 import json
@@ -29,6 +32,8 @@ from typing import Optional
 from urllib.request import Request, urlopen
 from urllib.parse import urlencode
 from urllib.error import URLError
+
+from player_settings import load_settings, save_settings
 
 # ── Configuration ──
 
@@ -47,6 +52,19 @@ MEDIA_BASE = Path("/opt/fleet-media")
 PLAYLIST_FILE = MEDIA_BASE / "playlist.current"
 RESTART_TRIGGER = MEDIA_BASE / ".restart-player"
 OSD_FILE = MEDIA_BASE / "osd.json"
+
+# SD card media partition (exFAT "FLEET-MEDIA", mounted by fstab; see
+# deploy/setup_media_partition.sh). Playback runs directly off it — no copy.
+SD_MEDIA_DIR = Path("/media/fleet-sd")
+SD_REIMPORT_TRIGGER = Path("/tmp/fleet-sd-reimport")
+
+# Extensions the player can render; everything else (README.txt,
+# fleet-setup.toml, …) is ignored when building playlists.
+MEDIA_EXTS = {
+    ".mp4", ".mkv", ".avi", ".mov", ".webm", ".m4v",
+    ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp",
+    ".mp3", ".wav", ".flac", ".ogg", ".aac",
+}
 
 FAST_PROBE_INTERVAL = 10   # seconds — cheap HEAD /health
 SLOW_POLL_INTERVAL = 30    # seconds — manifest + heartbeat
@@ -154,7 +172,9 @@ class FleetClient:
                 stats["uptime_seconds"] = int(float(f.read().split()[0]))
         except Exception:
             pass
-        stats["vlc_status"] = "running" if self._is_player_running() else "stopped"
+        # "vlc_status" is the legacy wire name the server stores; keep it.
+        stats["player_status"] = "running" if self._is_player_running() else "stopped"
+        stats["vlc_status"] = stats["player_status"]
         return stats
 
     # ── HTTP ──
@@ -253,10 +273,12 @@ class FleetClient:
             return False
 
     def _reason_for_offline(self) -> str:
-        """Cheapest → most specific. One of: 'no wifi', 'no mesh', 'no server'."""
+        """Cheapest → most specific. One of: 'no wifi', 'no mesh', 'no server'.
+        The mesh check only applies when tailscale is actually installed —
+        meshless deployments (public HTTPS server) go straight to 'no server'."""
         if not self._has_default_route():
             return "no wifi"
-        if not self._tailscale_up():
+        if shutil.which("tailscale") and not self._tailscale_up():
             return "no mesh"
         return "no server"
 
@@ -340,7 +362,9 @@ class FleetClient:
     # ── Playlist → player handoff ──
 
     def _write_playlist(self):
-        """Mirror the contents of `current/` into playlist.current, touch restart trigger."""
+        """Mirror the playable contents of `current/` into playlist.current,
+        touch restart trigger. Non-media files (README.txt, fleet-setup.toml…)
+        are filtered out so a stick or SD partition can carry extras."""
         if not self.current_link.exists():
             if PLAYLIST_FILE.exists():
                 try:
@@ -349,13 +373,115 @@ class FleetClient:
                     pass
         else:
             files = sorted(self.current_link.glob("*"))
-            files = [str(f) for f in files if f.is_file() and not f.name.startswith(".")]
+            files = [str(f) for f in files
+                     if f.is_file() and not f.name.startswith(".")
+                     and f.suffix.lower() in MEDIA_EXTS]
             PLAYLIST_FILE.write_text("\n".join(files) + "\n")
         try:
             RESTART_TRIGGER.parent.mkdir(parents=True, exist_ok=True)
             RESTART_TRIGGER.touch()
         except Exception as e:
             log.warning(f"Restart trigger touch failed: {e}")
+
+    # ── SD-card media partition ──
+
+    def _sd_media_files(self) -> list:
+        """Playable files in the FLEET-MEDIA partition root (non-recursive)."""
+        if not SD_MEDIA_DIR.is_dir():
+            return []
+        try:
+            return sorted(
+                p for p in SD_MEDIA_DIR.iterdir()
+                if p.is_file() and not p.name.startswith(".")
+                and p.suffix.lower() in MEDIA_EXTS
+            )
+        except OSError:
+            return []
+
+    @staticmethod
+    def _sd_signature(files: list) -> str:
+        """Cheap content signature: names + sizes + mtimes. Detects the
+        'card was edited on a laptop' case without hashing gigabytes."""
+        h = hashlib.sha256()
+        for f in files:
+            try:
+                st = f.stat()
+                h.update(f"{f.name}|{st.st_size}|{int(st.st_mtime)}\n".encode())
+            except OSError:
+                pass
+        return h.hexdigest()[:12]
+
+    def _check_sd_media(self):
+        """Pin playback to the SD media partition when its content changes.
+
+        Same model as a USB stick, but zero-copy: `current` symlinks straight
+        to the partition, so capacity is only limited by the card. Runs at
+        startup and every slow tick (stat calls only — cheap).
+
+        Rules:
+          - content CHANGED since last import → swap + pin (source 'sdcard')
+          - content unchanged → do nothing (even if unpinned via dashboard —
+            releasing a pin is a deliberate act; we don't fight it)
+          - partition emptied while sd-pinned → unpin, drop symlink, let the
+            server manifest (or idle screen) take over
+          - /tmp/fleet-sd-reimport exists (local UI 'Play from SD card')
+            → force re-import even if unchanged
+        """
+        force = SD_REIMPORT_TRIGGER.exists()
+        if force:
+            try:
+                SD_REIMPORT_TRIGGER.unlink()
+            except Exception:
+                pass
+
+        files = self._sd_media_files()
+        state = self._load_state()
+
+        if not files:
+            if state.get("pinned_source") == "sdcard":
+                log.info("SD media removed — unpinning, falling back")
+                state["pinned"] = False
+                state.pop("pinned_source", None)
+                state.pop("pinned_at", None)
+                state.pop("sd_signature", None)
+                state["current_version"] = None
+                self._save_state(state)
+                try:
+                    if self.current_link.is_symlink():
+                        self.current_link.unlink()
+                except Exception as e:
+                    log.warning(f"SD fallback unlink failed: {e}")
+                self._write_playlist()
+                if self._server_reachable:
+                    try:
+                        self._poll_manifest()
+                    except Exception as e:
+                        log.error(f"Post-SD manifest poll failed: {e}")
+            return
+
+        sig = self._sd_signature(files)
+        if sig == state.get("sd_signature") and not force:
+            return
+
+        log.info(f"SD media {'re-import forced' if force else 'content changed'} "
+                 f"— pinning to FLEET-MEDIA (sd-{sig}, {len(files)} files)")
+        tmp_link = self.media_base / "current.new"
+        try:
+            if tmp_link.exists() or tmp_link.is_symlink():
+                tmp_link.unlink()
+            tmp_link.symlink_to(SD_MEDIA_DIR)
+            os.replace(tmp_link, self.current_link)
+        except Exception as e:
+            log.error(f"SD symlink swap failed: {e}")
+            return
+
+        state["current_version"] = f"sd-{sig}"
+        state["sd_signature"] = sig
+        state["pinned"] = True
+        state["pinned_source"] = "sdcard"
+        state["pinned_at"] = time.time()
+        self._save_state(state)
+        self._write_playlist()
 
     # ── Manifest update ──
 
@@ -462,6 +588,7 @@ class FleetClient:
     def _heartbeat(self) -> list:
         stats = self._get_health_stats()
         state = self._load_state()
+        settings = load_settings()
         data = {
             "device_id": self.device_id,
             "manifest_version": state.get("current_version", "") or "",
@@ -472,6 +599,15 @@ class FleetClient:
             "pinned": "1" if state.get("pinned") else "0",
             "pinned_source": state.get("pinned_source") or "",
             "pinned_at": str(state.get("pinned_at") or ""),
+            # v0.3 additions (older servers simply ignore unknown form fields)
+            "fleet_state": state.get("state", ""),
+            "ip_address": self._get_hw_info().get("ip_address", ""),
+            "settings": json.dumps({
+                "rotation": settings["rotation"],
+                "image_duration_s": settings["image_duration_s"],
+                "volume_pct": settings["volume_pct"],
+                "muted": settings["muted"],
+            }),
         }
         result = self._api_call("POST", "/device/heartbeat", data)
         if result and result.get("pending_commands"):
@@ -514,6 +650,33 @@ class FleetClient:
             elif command == "health_probe":
                 result = json.dumps(self._get_health_stats())
 
+            elif command == "set_settings":
+                # Rotation / image duration / volume / mute pushed from the
+                # dashboard. fleet_player picks the file change up within a
+                # second and applies it live via mpv IPC — no restart.
+                applied = save_settings(params, updated_by="server")
+                result = json.dumps(applied)
+
+            elif command == "identify":
+                # Flash device info on the physical screen for 30s so a tech
+                # standing in the venue can match dashboard entry ↔ screen.
+                hw = self._get_hw_info()
+                force_until = datetime.now(timezone.utc) + timedelta(seconds=30)
+                payload = {
+                    "message": f"◉ {self.device_id} · {hw.get('hostname','?')} · {hw.get('ip_address','?')}",
+                    "force_until": force_until.isoformat(),
+                    "kind": "info",
+                }
+                OSD_FILE.parent.mkdir(parents=True, exist_ok=True)
+                OSD_FILE.write_text(json.dumps(payload))
+                result = "identifying for 30s"
+
+            elif command == "play_sd":
+                # Force (re-)import of the SD media partition.
+                SD_REIMPORT_TRIGGER.touch()
+                self._check_sd_media()
+                result = "sd reimport triggered"
+
             elif command == "shell":
                 shell_cmd = params.get("cmd", "echo no command")
                 try:
@@ -536,6 +699,13 @@ class FleetClient:
 
     def run(self):
         log.info(f"Fleet client starting — device={self.device_id} group={self.config.get('group')}")
+
+        # SD media partition first — if the card carries new content (edited
+        # on a laptop while powered off), pin to it before talking to the server.
+        try:
+            self._check_sd_media()
+        except Exception as e:
+            log.error(f"SD media check failed: {e}")
 
         # If the player has no playlist yet but we already have media on disk
         # (e.g. after a restart), rebuild it so fleet-player can resume.
@@ -581,40 +751,55 @@ class FleetClient:
                     except Exception:
                         pass
                     log.info("Manual update trigger received")
-                    if state == "PLAYING_CONNECTED" and not self._is_pinned():
+                    if self._server_reachable and not self._is_pinned():
                         try:
                             self._poll_manifest()
                         except Exception as e:
                             log.error(f"Triggered poll failed: {e}")
 
-                # 3. Slow loop (manifest + heartbeat). Jitter is applied here
-                # so 150 Pis don't all hammer the server on the same second.
+                # 2c. Local 'Play from SD card' trigger reacts within a tick
+                if SD_REIMPORT_TRIGGER.exists():
+                    try:
+                        self._check_sd_media()
+                    except Exception as e:
+                        log.error(f"SD reimport failed: {e}")
+
+                # 3. Slow loop (manifest + heartbeat + SD scan). Jitter is
+                # applied here so 150 Pis don't all hammer the server on the
+                # same second.
+                #
+                # NOTE this runs in EVERY state, including NO_MEDIA — a fresh
+                # Pi must poll + heartbeat, otherwise it can never receive its
+                # first media assignment or appear live in the dashboard.
+                # (v0.2 bug: NO_MEDIA devices went silent forever.)
                 if now >= next_slow_at:
                     next_slow_at = now + SLOW_POLL_INTERVAL + random.uniform(
                         0, self.config.get("jitter_max", 0))
-                    pinned = self._is_pinned()
-                    if state == "PLAYING_CONNECTED":
-                        if not pinned:
+
+                    try:
+                        self._check_sd_media()
+                    except Exception as e:
+                        log.error(f"SD media check error: {e}")
+
+                    if self._server_reachable:
+                        if not self._is_pinned():
                             try:
                                 self._poll_manifest()
                             except Exception as e:
                                 log.error(f"Manifest poll error: {e}")
-                        else:
-                            log.info("Pinned — skipping manifest poll")
                         try:
                             commands = self._heartbeat()
                             for cmd in commands:
                                 self._execute_command(cmd)
                         except Exception as e:
                             log.error(f"Heartbeat error: {e}")
-                    elif state == "PLAYING_OFFLINE":
-                        # Heartbeat will fail; try anyway so lastSeen behavior is consistent
-                        # when the server briefly flapped.
+                    else:
+                        # Heartbeat will fail; try anyway so lastSeen behavior
+                        # is consistent when the server briefly flapped.
                         try:
                             self._heartbeat()
                         except Exception:
                             pass
-                    # NO_MEDIA: nothing to do; still ticked OSD above.
 
                 time.sleep(1)
 

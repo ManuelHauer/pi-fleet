@@ -24,6 +24,23 @@ else
 fi
 echo
 
+echo "--- Player settings (/opt/fleet-media/player-settings.json) ---"
+if [ -f /opt/fleet-media/player-settings.json ]; then
+    cat /opt/fleet-media/player-settings.json | python3 -m json.tool 2>/dev/null || cat /opt/fleet-media/player-settings.json
+else
+    echo "(defaults: rotation 0, 10s slides, volume 100)"
+fi
+echo
+
+echo "--- SD media partition (/media/fleet-sd) ---"
+if mountpoint -q /media/fleet-sd 2>/dev/null; then
+    df -h /media/fleet-sd | tail -1
+    ls /media/fleet-sd 2>/dev/null | head -10
+else
+    echo "(not mounted — card has no FLEET-MEDIA partition or fstab entry missing)"
+fi
+echo
+
 echo "--- OSD (/opt/fleet-media/osd.json) ---"
 if [ -f /opt/fleet-media/osd.json ]; then
     cat /opt/fleet-media/osd.json | python3 -m json.tool 2>/dev/null || cat /opt/fleet-media/osd.json

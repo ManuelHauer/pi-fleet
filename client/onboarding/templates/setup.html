@@ -2,135 +2,139 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>ARS Festival — Device Setup</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Fleet Setup — {{ device_id }}</title>
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    font-family: -apple-system, system-ui, sans-serif;
-    background: #0a0a0f; color: #e0e0e8;
-    min-height: 100vh; display: flex; align-items: center; justify-content: center;
-    padding: 20px;
+  :root {
+    --bg:#0b0b12; --card:#15151f; --line:#272736; --ink:#e8e8f0;
+    --dim:#8f8fa8; --accent:#7c6cf0; --accent-soft:rgba(124,108,240,.14);
   }
-  .card {
-    background: #141420; border: 1px solid #2a2a3e; border-radius: 16px;
-    padding: 32px; width: 100%; max-width: 400px;
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body { font-family:-apple-system,system-ui,sans-serif; background:var(--bg); color:var(--ink);
+         min-height:100vh; padding:18px 16px calc(30px + env(safe-area-inset-bottom));
+         max-width:480px; margin:0 auto; }
+  .head { text-align:center; padding:18px 0 6px; }
+  .head .logo { font-size:34px; }
+  h1 { font-size:20px; font-weight:700; margin-top:8px; }
+  .sub { color:var(--dim); font-size:12px; margin-top:6px; font-family:ui-monospace,monospace; }
+  .step { display:flex; gap:12px; align-items:baseline; margin:22px 0 10px; }
+  .step .n { background:var(--accent); color:#fff; font-size:12px; font-weight:700;
+             width:22px; height:22px; border-radius:50%; display:inline-flex;
+             align-items:center; justify-content:center; flex:0 0 auto; transform:translateY(3px); }
+  .step .t { font-size:15px; font-weight:600; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:6px 16px; }
+
+  .net { display:flex; align-items:center; gap:12px; width:100%; padding:15px 2px;
+         border:none; border-bottom:1px solid #1d1d2a; background:none; color:var(--ink);
+         font-size:15px; text-align:left; cursor:pointer; }
+  .net:last-child { border-bottom:none; }
+  .net.selected .name { color:var(--accent); font-weight:700; }
+  .net .name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .net .lock { color:var(--dim); font-size:13px; flex:0 0 auto; }
+  .bars { display:inline-flex; align-items:flex-end; gap:2px; height:16px; flex:0 0 auto; }
+  .bars i { width:4px; background:#3a3a4e; border-radius:1px; }
+  .bars i:nth-child(1){height:5px} .bars i:nth-child(2){height:9px}
+  .bars i:nth-child(3){height:13px} .bars i:nth-child(4){height:16px}
+  .bars.s1 i:nth-child(-n+1), .bars.s2 i:nth-child(-n+2),
+  .bars.s3 i:nth-child(-n+3), .bars.s4 i:nth-child(-n+4) { background:var(--accent); }
+  .empty { color:var(--dim); font-size:13px; text-align:center; padding:18px 6px; line-height:1.5; }
+
+  .field { margin:14px 0; }
+  .field label { display:block; font-size:12px; color:var(--dim); margin-bottom:7px;
+                 text-transform:uppercase; letter-spacing:.6px; }
+  input[type=text], input[type=password] {
+    width:100%; padding:15px 14px; border:1px solid var(--line); border-radius:10px;
+    background:#10101a; color:var(--ink); font-size:16px; outline:none;
   }
-  h1 { font-size: 20px; text-align: center; margin-bottom: 4px; }
-  .subtitle { text-align: center; color: #8888a0; font-size: 13px; margin-bottom: 24px; }
-  .device-id { text-align: center; color: #6c5ce7; font-size: 11px; font-family: monospace; margin-bottom: 20px; }
-  
-  label { display: block; font-size: 13px; color: #8888a0; margin-bottom: 4px; margin-top: 16px; }
-  input, select {
-    width: 100%; padding: 12px 14px; border: 1px solid #2a2a3e; border-radius: 8px;
-    background: #0a0a0f; color: #e0e0e8; font-size: 16px; outline: none;
-    -webkit-appearance: none;
-  }
-  input:focus, select:focus { border-color: #6c5ce7; }
-  
-  .ssid-list { margin-top: 8px; max-height: 150px; overflow-y: auto; }
-  .ssid-item {
-    padding: 10px 14px; border: 1px solid #2a2a3e; border-radius: 6px;
-    margin-bottom: 4px; cursor: pointer; font-size: 14px;
-    transition: background 0.15s;
-  }
-  .ssid-item:hover, .ssid-item.selected { background: #6c5ce722; border-color: #6c5ce7; }
-  
-  .btn {
-    width: 100%; padding: 14px; border: none; border-radius: 8px;
-    background: #6c5ce7; color: white; font-size: 16px; font-weight: 600;
-    cursor: pointer; margin-top: 24px;
-    transition: opacity 0.15s;
-  }
-  .btn:hover { opacity: 0.9; }
-  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-  
-  .scan-btn {
-    background: transparent; border: 1px solid #2a2a3e; color: #8888a0;
-    padding: 8px 14px; border-radius: 6px; font-size: 12px; cursor: pointer;
-    margin-top: 8px;
-  }
-  
-  .error { color: #ff6b6b; font-size: 13px; text-align: center; margin-top: 12px; }
-  .spinner { display: none; text-align: center; margin-top: 16px; color: #a29bfe; }
-  
-  .manual-toggle {
-    text-align: center; margin-top: 12px; font-size: 12px; color: #6c5ce7;
-    cursor: pointer; text-decoration: underline;
-  }
+  input:focus { border-color:var(--accent); }
+  .pw-wrap { position:relative; }
+  .pw-toggle { position:absolute; right:6px; top:50%; transform:translateY(-50%);
+               background:none; border:none; color:var(--dim); font-size:13px;
+               padding:10px; cursor:pointer; }
+
+  .btn { display:block; width:100%; padding:17px; margin-top:20px; border:none;
+         border-radius:12px; background:var(--accent); color:#fff; font-size:17px;
+         font-weight:700; cursor:pointer; }
+  .btn:disabled { opacity:.45; }
+  .note { font-size:12px; color:var(--dim); text-align:center; margin-top:16px; line-height:1.6; }
 </style>
 </head>
 <body>
-<div class="card">
-  <h1>🎬 Ars Festival</h1>
-  <div class="subtitle">Device Wi-Fi Setup</div>
-  <div class="device-id">{{ device_id }}</div>
+  <div class="head">
+    <div class="logo">🎬</div>
+    <h1>Media Player Setup</h1>
+    <div class="sub">{{ device_id }} · {{ ap_name }}</div>
+  </div>
 
-  <form id="setupForm" action="/connect" method="POST">
-    <label>Venue / Location</label>
-    <input type="text" name="label" placeholder="e.g., Mariendom-05" required>
-
-    <label>Wi-Fi Network</label>
-    <div id="ssidSection">
-      <div class="ssid-list" id="ssidList">
-        {% for ssid in networks %}
-        <div class="ssid-item" onclick="selectSSID(this, '{{ ssid }}')">{{ ssid }}</div>
-        {% endfor %}
+  <form method="POST" action="/connect" id="setupForm">
+    <div class="step"><span class="n">1</span><span class="t">Choose the venue Wi-Fi</span></div>
+    <div class="card">
+      {% for n in networks %}
+      <button type="button" class="net" data-ssid="{{ n.ssid }}" onclick="pick(this)">
+        <span class="bars s{{ (n.signal // 25) + 1 if n.signal < 100 else 4 }}"><i></i><i></i><i></i><i></i></span>
+        <span class="name">{{ n.ssid }}</span>
+        {% if n.security != 'open' %}<span class="lock">🔒</span>{% endif %}
+      </button>
+      {% endfor %}
+      {% if not networks %}
+      <div class="empty">No networks found in the pre-setup scan.<br>
+        Type the network name below.</div>
+      {% endif %}
+      <div class="field" style="padding-bottom:12px">
+        <label>Or type the network name</label>
+        <input type="text" name="ssid_manual" id="ssidManual" placeholder="Network name (SSID)"
+               autocomplete="off" autocapitalize="none" oninput="manualInput()">
       </div>
-      <button type="button" class="scan-btn" onclick="rescan()">↻ Rescan networks</button>
-      <div class="manual-toggle" onclick="showManual()">Enter SSID manually</div>
-      <input type="hidden" name="ssid" id="ssidInput" required>
     </div>
-    <div id="manualSection" style="display:none">
-      <input type="text" name="ssid_manual" id="ssidManual" placeholder="Network name (SSID)">
-      <div class="manual-toggle" onclick="showList()">Show available networks</div>
+    <input type="hidden" name="ssid" id="ssidField">
+
+    <div class="step"><span class="n">2</span><span class="t">Enter the Wi-Fi password</span></div>
+    <div class="card" style="padding:16px">
+      <div class="pw-wrap">
+        <input type="password" name="password" id="pwField" placeholder="Password"
+               autocomplete="off" autocapitalize="none">
+        <button type="button" class="pw-toggle" onclick="togglePw()">show</button>
+      </div>
     </div>
 
-    <label>Wi-Fi Password</label>
-    <input type="password" name="password" placeholder="Enter password" required>
+    <button type="submit" class="btn" id="connectBtn" disabled>Connect device</button>
 
-    <button type="submit" class="btn" id="connectBtn">Connect</button>
+    <div class="note">
+      After you tap Connect, this setup network switches off while the device
+      joins the venue Wi-Fi. <b>Watch the screen attached to the device</b> —
+      it shows CONNECTED or, if it fails, the setup network comes back for
+      another try.
+    </div>
   </form>
 
-  <div class="spinner" id="spinner">Connecting… please wait</div>
-  <div class="error" id="error"></div>
-</div>
-
 <script>
-function selectSSID(el, ssid) {
-  document.querySelectorAll('.ssid-item').forEach(e => e.classList.remove('selected'));
-  el.classList.add('selected');
-  document.getElementById('ssidInput').value = ssid;
+function pick(btn) {
+  document.querySelectorAll('.net').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
+  document.getElementById('ssidField').value = btn.dataset.ssid;
+  document.getElementById('ssidManual').value = '';
+  validate();
+  document.getElementById('pwField').focus();
 }
-
-function showManual() {
-  document.getElementById('ssidSection').style.display = 'none';
-  document.getElementById('manualSection').style.display = 'block';
+function manualInput() {
+  document.querySelectorAll('.net').forEach(b => b.classList.remove('selected'));
+  document.getElementById('ssidField').value = '';
+  validate();
 }
-function showList() {
-  document.getElementById('ssidSection').style.display = 'block';
-  document.getElementById('manualSection').style.display = 'none';
+function validate() {
+  const ssid = document.getElementById('ssidField').value || document.getElementById('ssidManual').value.trim();
+  document.getElementById('connectBtn').disabled = !ssid;
 }
-
-function rescan() {
-  window.location.href = '/scan';
+function togglePw() {
+  const f = document.getElementById('pwField');
+  const t = document.querySelector('.pw-toggle');
+  const show = f.type === 'password';
+  f.type = show ? 'text' : 'password';
+  t.textContent = show ? 'hide' : 'show';
 }
-
-document.getElementById('setupForm').addEventListener('submit', function(e) {
-  // Use manual SSID if visible
-  const manual = document.getElementById('manualSection');
-  if (manual.style.display !== 'none') {
-    document.getElementById('ssidInput').value = document.getElementById('ssidManual').value;
-  }
-  
-  if (!document.getElementById('ssidInput').value) {
-    e.preventDefault();
-    document.getElementById('error').textContent = 'Please select or enter a Wi-Fi network';
-    return;
-  }
-  
-  document.getElementById('connectBtn').disabled = true;
-  document.getElementById('spinner').style.display = 'block';
+document.getElementById('setupForm').addEventListener('submit', () => {
+  const b = document.getElementById('connectBtn');
+  b.disabled = true; b.textContent = 'Connecting…';
 });
 </script>
 </body>
