@@ -97,7 +97,7 @@ apt-get update -qq
 # NM's shared mode; exfatprogs+parted for the FLEET-MEDIA partition.
 apt-get install -y --no-install-recommends \
     network-manager dnsmasq-base \
-    python3 python3-pip python3-pil python3-flask python3-requests \
+    python3 python3-pip python3-pil python3-flask python3-requests python3-evdev \
     mpv \
     exfatprogs parted \
     rfkill iw \
@@ -172,13 +172,15 @@ chown pi:pi /etc/fleet-client 2>/dev/null || true
 cp /opt/fleet-client/fleet-player.service        /etc/systemd/system/
 cp /opt/fleet-client/fleet-client.service        /etc/systemd/system/
 cp /opt/fleet-client/fleet-local-control.service /etc/systemd/system/
+cp /opt/fleet-client/fleet-keyboard.service      /etc/systemd/system/
 cp /opt/fleet-client/onboarding/fleet-onboard.service /etc/systemd/system/
 
 systemctl daemon-reload
 systemctl enable fleet-onboard.service \
                  fleet-player.service \
                  fleet-client.service \
-                 fleet-local-control.service
+                 fleet-local-control.service \
+                 fleet-keyboard.service
 
 # Free tty1 for mpv DRM (no autologin needed; mpv talks to KMS directly)
 systemctl disable getty@tty1.service 2>/dev/null || true

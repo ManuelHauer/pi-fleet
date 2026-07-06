@@ -1,0 +1,18 @@
+[Unit]
+Description=Ars Festival Fleet Keyboard Control (USB keyboard → playback)
+After=fleet-player.service
+Wants=fleet-player.service
+
+[Service]
+Type=simple
+User=pi
+# 'input' group grants read access to /dev/input/event* without root
+SupplementaryGroups=input
+ExecStart=/usr/bin/python3 /opt/fleet-client/keyboard_control.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

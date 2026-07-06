@@ -66,6 +66,24 @@ Each Pi runs a **local control panel**: open `http://<pi-ip>:8080` on any device
 
 Rotation and slide duration can **also** be set per device from the central dashboard (Playback settings section in the device panel) — same effect, applied within one heartbeat (~30 s). The dashboard always shows what the device last reported.
 
+### Controlling a device with a USB keyboard  *(new in v0.4)*
+
+Plug a **USB keyboard** into the Pi and you can control playback directly — no
+phone, no network needed (handy in a venue with no signal). Keys work the
+instant the keyboard is plugged in.
+
+| Key | Action |
+|---|---|
+| `+` / `−` (or the volume keys) | Volume up / down |
+| `m` (or the mute key) | Mute / unmute |
+| `r` | Rotate the screen (cycles 0° → 90° → 180° → 270°) |
+| `[` / `]` | Slideshow: slower / faster (image duration ± 2 s) |
+| `→` / `←` (or next/prev track keys) | Next / previous item |
+| `Space` (or play/pause key) | Pause / resume |
+
+Keyboard, phone UI and dashboard all stay in sync — a change made on the
+keyboard shows up in the dashboard on the next heartbeat.
+
 ### Reading the on-screen overlay
 
 | Overlay | What it means |
