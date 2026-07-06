@@ -158,10 +158,15 @@ cat > /etc/fleet-client/config.json << EOF
     "label": ""
 }
 EOF
+# The daemons run as User=pi, so pi must OWN the config (600 root-only made
+# fleet-client fall back to built-in defaults — wrong server/group — and broke
+# the local UI password). Owned by pi, mode 600 keeps the PSK/password private.
+chown pi:pi /etc/fleet-client/config.json
 chmod 600 /etc/fleet-client/config.json
 
-# Media dir ownership (daemons run as pi)
+# Media dir + client tree + config dir ownership (daemons run as pi)
 chown -R pi:pi /opt/fleet-media /opt/fleet-client 2>/dev/null || true
+chown pi:pi /etc/fleet-client 2>/dev/null || true
 
 # ── systemd units ──
 cp /opt/fleet-client/fleet-player.service        /etc/systemd/system/
