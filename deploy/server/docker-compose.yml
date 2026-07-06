@@ -1,0 +1,48 @@
+# Ars Fleet Server — docker compose deployment
+#
+#   cp .env.example .env   # then fill in real secrets + domain
+#   docker compose up -d
+#
+# Two services:
+#   fleet-server  FastAPI app on internal port 8550
+#   caddy         reverse proxy with AUTOMATIC HTTPS (Let's Encrypt) for
+#                 $FLEET_DOMAIN. Remove it if the host already runs a
+#                 reverse proxy — then publish 8550 behind that proxy instead.
+
+services:
+  fleet-server:
+    build:
+      context: ../..
+      dockerfile: deploy/server/Dockerfile
+    restart: unless-stopped
+    environment:
+      FLEET_ADMIN_USER: ${FLEET_ADMIN_USER:-admin}
+      FLEET_ADMIN_PASS: ${FLEET_ADMIN_PASS:?set in .env}
+      FLEET_JWT_SECRET: ${FLEET_JWT_SECRET:?set in .env}
+      FLEET_DEVICE_PSK: ${FLEET_DEVICE_PSK:?set in .env}
+      FLEET_DISABLE_SHELL: ${FLEET_DISABLE_SHELL:-1}
+      FLEET_DATA_DIR: /data
+    volumes:
+      - fleet-data:/data
+    expose:
+      - "8550"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      FLEET_DOMAIN: ${FLEET_DOMAIN:?set in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - fleet-server
+
+volumes:
+  fleet-data:
+  caddy-data:
+  caddy-config:

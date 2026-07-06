@@ -144,6 +144,10 @@ def init_db():
         _ensure_column(db, "devices", "pinned", "pinned INTEGER DEFAULT 0")
         _ensure_column(db, "devices", "pinned_source", "pinned_source TEXT")
         _ensure_column(db, "devices", "pinned_at", "pinned_at TEXT")
+        # v0.3: venue field, reported playback settings, derived client state
+        _ensure_column(db, "devices", "location", "location TEXT")
+        _ensure_column(db, "devices", "settings", "settings JSON DEFAULT '{}'")
+        _ensure_column(db, "devices", "fleet_state", "fleet_state TEXT")
 
 
 # --- Device operations ---
@@ -194,7 +198,7 @@ def get_device(device_id: str) -> Optional[dict]:
 
 
 def update_device(device_id: str, **fields) -> bool:
-    allowed = {"label", "group_name", "status", "extra"}
+    allowed = {"label", "group_name", "status", "extra", "location"}
     updates = {k: v for k, v in fields.items() if k in allowed}
     if not updates:
         return False
@@ -308,6 +312,8 @@ def record_heartbeat(device_id: str, manifest_version: str = None,
                      disk_free_mb: int = None, uptime_seconds: int = None,
                      pinned: bool = None, pinned_source: str = None,
                      pinned_at: str = None,
+                     fleet_state: str = None, ip_address: str = None,
+                     settings: str = None,
                      extra: dict = None) -> dict:
     with get_db() as db:
         db.execute("""INSERT INTO heartbeats (device_id, timestamp, manifest_version,
@@ -316,7 +322,14 @@ def record_heartbeat(device_id: str, manifest_version: str = None,
                    (device_id, utcnow(), manifest_version, vlc_status,
                     cpu_temp, disk_free_mb, uptime_seconds,
                     json.dumps(extra or {})))
-        # Update device last_seen + pin state (if provided)
+        # Validate reported settings JSON before storing
+        settings_json = None
+        if settings:
+            try:
+                settings_json = json.dumps(json.loads(settings))
+            except (ValueError, TypeError):
+                settings_json = None
+        # Update device last_seen + pin state + v0.3 reported fields
         db.execute(
             """UPDATE devices SET
                 last_seen=?,
@@ -324,14 +337,54 @@ def record_heartbeat(device_id: str, manifest_version: str = None,
                 current_manifest_version=COALESCE(?,current_manifest_version),
                 pinned=COALESCE(?, pinned),
                 pinned_source=COALESCE(?, pinned_source),
-                pinned_at=COALESCE(?, pinned_at)
+                pinned_at=COALESCE(?, pinned_at),
+                fleet_state=COALESCE(?, fleet_state),
+                ip_address=COALESCE(?, ip_address),
+                settings=COALESCE(?, settings)
                WHERE id=?""",
             (utcnow(), manifest_version,
              1 if pinned is True else (0 if pinned is False else None),
              pinned_source if pinned_source else None,
              pinned_at if pinned_at else None,
+             fleet_state if fleet_state else None,
+             ip_address if ip_address else None,
+             settings_json,
              device_id))
         return {"recorded": True}
+
+
+def prune_heartbeats(keep_per_device: int = 500) -> int:
+    """Drop old heartbeat rows so a festival's 150 Pis × 2/min don't grow the
+    DB unbounded. Keeps the newest N rows per device. Returns rows deleted."""
+    with get_db() as db:
+        cur = db.execute("""
+            DELETE FROM heartbeats WHERE id IN (
+                SELECT id FROM (
+                    SELECT id, ROW_NUMBER() OVER (
+                        PARTITION BY device_id ORDER BY timestamp DESC
+                    ) AS rn FROM heartbeats
+                ) WHERE rn > ?
+            )""", (keep_per_device,))
+        return cur.rowcount
+
+
+def fleet_summary() -> dict:
+    """Aggregate counts for the dashboard header."""
+    from datetime import timedelta
+    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=90)).isoformat()
+    with get_db() as db:
+        total = db.execute("SELECT COUNT(*) c FROM devices").fetchone()["c"]
+        online = db.execute("SELECT COUNT(*) c FROM devices WHERE last_seen >= ?",
+                            (cutoff,)).fetchone()["c"]
+        pinned = db.execute("SELECT COUNT(*) c FROM devices WHERE pinned=1").fetchone()["c"]
+        media = db.execute("SELECT COUNT(*) c, COALESCE(SUM(size_bytes),0) s "
+                           "FROM media_files").fetchone()
+        groups = [r["group_name"] for r in db.execute(
+            "SELECT DISTINCT group_name FROM devices ORDER BY group_name").fetchall()]
+        return {"devices_total": total, "devices_online": online,
+                "devices_offline": total - online, "devices_pinned": pinned,
+                "media_files": media["c"], "media_bytes": media["s"],
+                "groups": groups}
 
 
 def set_device_pin(device_id: str, pinned: bool,

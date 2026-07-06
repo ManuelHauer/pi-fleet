@@ -1,0 +1,11 @@
+# Automatic HTTPS for the fleet server.
+# FLEET_DOMAIN comes from .env (e.g. fleet.example.org — the DNS A record
+# must point at this machine and ports 80+443 must be reachable).
+{$FLEET_DOMAIN} {
+	reverse_proxy fleet-server:8550
+
+	# Media uploads can be large festival videos
+	request_body {
+		max_size 8GB
+	}
+}

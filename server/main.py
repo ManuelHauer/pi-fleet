@@ -10,15 +10,18 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException, Query
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
 import database as db
 from auth import verify_admin, verify_device, create_admin_token
-from config import MEDIA_DIR, HOST, PORT, DEFAULT_POLL_INTERVAL
+from config import (MEDIA_DIR, HOST, PORT, DEFAULT_POLL_INTERVAL,
+                    DISABLE_SHELL, HEARTBEAT_KEEP)
 
-app = FastAPI(title="Ars Festival Media Server", version="0.1.0")
+VERSION = "0.3.0"
+
+app = FastAPI(title="Ars Festival Media Server", version=VERSION)
 
 app.add_middleware(
     CORSMiddleware,
@@ -32,15 +35,26 @@ app.add_middleware(
 @app.on_event("startup")
 def startup():
     db.init_db()
+    try:
+        pruned = db.prune_heartbeats(HEARTBEAT_KEEP)
+        if pruned:
+            print(f"Pruned {pruned} old heartbeat rows")
+    except Exception as e:
+        print(f"Heartbeat prune failed: {e}")
 
 
 # ──────────────────────────────────────────────
 # Health / Info
 # ──────────────────────────────────────────────
 
+@app.get("/")
+def root():
+    return RedirectResponse("/dashboard/")
+
+
 @app.api_route("/health", methods=["GET", "HEAD"])
 def health():
-    return {"status": "ok", "service": "ars-fleet-server", "version": "0.1.0"}
+    return {"status": "ok", "service": "ars-fleet-server", "version": VERSION}
 
 
 @app.get("/info")
@@ -82,6 +96,9 @@ def device_register(
     return result
 
 
+_heartbeat_counter = 0
+
+
 @app.post("/device/heartbeat")
 def device_heartbeat(
     device_id: str = Form(...),
@@ -93,6 +110,9 @@ def device_heartbeat(
     pinned: str = Form(None),
     pinned_source: str = Form(None),
     pinned_at: str = Form(None),
+    fleet_state: str = Form(None),
+    ip_address: str = Form(None),
+    settings: str = Form(None),
     _auth=Depends(verify_device)
 ):
     pin_bool: Optional[bool] = None
@@ -104,7 +124,18 @@ def device_heartbeat(
         pinned=pin_bool,
         pinned_source=pinned_source or None,
         pinned_at=pinned_at or None,
+        fleet_state=fleet_state or None,
+        ip_address=ip_address or None,
+        settings=settings or None,
     )
+    # Periodic heartbeat pruning (cheap; roughly every 1000 beats)
+    global _heartbeat_counter
+    _heartbeat_counter += 1
+    if _heartbeat_counter % 1000 == 0:
+        try:
+            db.prune_heartbeats(HEARTBEAT_KEEP)
+        except Exception:
+            pass
     # Also return pending commands
     commands = db.get_pending_commands(device_id)
     return {"heartbeat": result, "pending_commands": commands,
@@ -344,6 +375,7 @@ def admin_update_device(
     device_id: str,
     label: str = Form(None),
     group_name: str = Form(None),
+    location: str = Form(None),
     admin=Depends(verify_admin)
 ):
     fields = {}
@@ -351,10 +383,19 @@ def admin_update_device(
         fields["label"] = label
     if group_name is not None:
         fields["group_name"] = group_name
+    if location is not None:
+        fields["location"] = location
     ok = db.update_device(device_id, **fields)
     if not ok:
         raise HTTPException(400, "No valid fields to update")
     return {"updated": True}
+
+
+VALID_COMMANDS = {"reboot", "vlc_restart", "player_restart", "update_now",
+                  "health_probe", "force_poll", "unpin",
+                  "set_settings", "identify", "play_sd"}
+if not DISABLE_SHELL:
+    VALID_COMMANDS.add("shell")
 
 
 @app.post("/admin/devices/{device_id}/command")
@@ -365,16 +406,50 @@ def admin_send_command(
     admin=Depends(verify_admin)
 ):
     """Send a command to a device."""
-    valid_commands = {"reboot", "vlc_restart", "player_restart", "update_now",
-                      "health_probe", "shell", "force_poll", "unpin"}
-    if command not in valid_commands:
-        raise HTTPException(400, f"Invalid command. Valid: {valid_commands}")
+    if command not in VALID_COMMANDS:
+        raise HTTPException(400, f"Invalid command. Valid: {sorted(VALID_COMMANDS)}")
     try:
         params_dict = json.loads(params)
     except json.JSONDecodeError:
         params_dict = {}
     result = db.create_command(device_id, command, params_dict)
     return result
+
+
+@app.put("/admin/devices/{device_id}/settings")
+def admin_set_device_settings(
+    device_id: str,
+    rotation: int = Form(None),
+    image_duration_s: int = Form(None),
+    volume_pct: int = Form(None),
+    muted: str = Form(None),
+    admin=Depends(verify_admin)
+):
+    """Push playback settings (rotation / slide duration / volume / mute) to a
+    device. Queues a `set_settings` command; the client applies it live via
+    mpv IPC and reports the applied values back in its next heartbeat."""
+    if not db.get_device(device_id):
+        raise HTTPException(404, "Device not found")
+    patch = {}
+    if rotation is not None:
+        if rotation not in (0, 90, 180, 270):
+            raise HTTPException(400, "rotation must be 0, 90, 180 or 270")
+        patch["rotation"] = rotation
+    if image_duration_s is not None:
+        patch["image_duration_s"] = max(1, min(3600, image_duration_s))
+    if volume_pct is not None:
+        patch["volume_pct"] = max(0, min(200, volume_pct))
+    if muted is not None and muted != "":
+        patch["muted"] = muted in ("1", "true", "True", "yes")
+    if not patch:
+        raise HTTPException(400, "No settings provided")
+    cmd = db.create_command(device_id, "set_settings", patch)
+    return {"queued": True, "settings": patch, "command": cmd}
+
+
+@app.get("/admin/summary")
+def admin_summary(admin=Depends(verify_admin)):
+    return db.fleet_summary()
 
 
 @app.post("/admin/devices/{device_id}/unpin")
