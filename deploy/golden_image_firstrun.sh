@@ -75,8 +75,21 @@ if [ "$NET_OK" != "1" ]; then
   exit 1
 fi
 
-echo "Installing packages…"
 export DEBIAN_FRONTEND=noninteractive
+
+# ── FLEET-MEDIA partition FIRST — this GROWS the root filesystem (auto-expand
+# was disabled at flash time so we could carve out the media partition). The
+# stock image root is only ~2 GB; apt would run out of space downloading mpv &
+# co. before we ever got here. setup_media_partition.sh grows rootfs to
+# ROOTFS_GB, then formats the rest as FLEET-MEDIA (installing exfatprogs itself
+# once the rootfs has room). MUST precede the package install. ──
+if [ -x "$FLEET_DIR/deploy/setup_media_partition.sh" ]; then
+  ROOTFS_GB="$ROOTFS_GB" bash "$FLEET_DIR/deploy/setup_media_partition.sh" || {
+    echo "WARNING: media partition / rootfs grow failed — continuing (apt may be tight)"
+  }
+fi
+
+echo "Installing packages…"
 apt-get update -qq
 # NetworkManager is the default netstack on Bookworm/Trixie — we standardize
 # on it (nmcli) for venue Wi-Fi AND the onboarding hotspot. No hostapd, no
@@ -84,7 +97,7 @@ apt-get update -qq
 # NM's shared mode; exfatprogs+parted for the FLEET-MEDIA partition.
 apt-get install -y --no-install-recommends \
     network-manager dnsmasq-base \
-    python3 python3-pip python3-pil python3-flask python3-requests \
+    python3 python3-pip python3-pil python3-flask python3-requests python3-evdev \
     mpv \
     exfatprogs parted \
     rfkill iw \
@@ -98,21 +111,19 @@ cat > /etc/NetworkManager/dnsmasq-shared.d/00-fleet-captive.conf <<'EOF'
 address=/#/10.42.0.1
 EOF
 
-# ── Tailscale (optional mesh; harmless if never joined) ──
+# ── Tailscale (OPTIONAL mesh; non-fatal — a public-HTTPS deployment needs no
+# mesh, and a repo/keyring hiccup must never abort the whole provisioning) ──
 echo "Installing Tailscale…"
 if ! command -v tailscale >/dev/null 2>&1; then
-  curl -fsSL https://pkgs.tailscale.com/stable/raspbian/bookworm.noarmor.gpg \
-      | tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
-  curl -fsSL https://pkgs.tailscale.com/stable/raspbian/bookworm.tailscale-keyring.list \
-      | tee /etc/apt/sources.list.d/tailscale.list
-  apt-get update -qq && apt-get install -y tailscale
-fi
-
-# ── 3. FLEET-MEDIA partition (needs exfatprogs from step 2) ──
-if [ -x "$FLEET_DIR/deploy/setup_media_partition.sh" ]; then
-  ROOTFS_GB="$ROOTFS_GB" bash "$FLEET_DIR/deploy/setup_media_partition.sh" || {
-    echo "WARNING: media partition setup failed — continuing without it"
-  }
+  if curl -fsSL https://pkgs.tailscale.com/stable/raspbian/bookworm.noarmor.gpg \
+        | tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null \
+     && curl -fsSL https://pkgs.tailscale.com/stable/raspbian/bookworm.tailscale-keyring.list \
+        | tee /etc/apt/sources.list.d/tailscale.list >/dev/null; then
+    apt-get update -qq && apt-get install -y tailscale \
+      || echo "WARNING: tailscale install failed — continuing without mesh"
+  else
+    echo "WARNING: tailscale repo setup failed — continuing without mesh"
+  fi
 fi
 
 # ── 4. Fleet code, config, services ──
@@ -147,22 +158,29 @@ cat > /etc/fleet-client/config.json << EOF
     "label": ""
 }
 EOF
+# The daemons run as User=pi, so pi must OWN the config (600 root-only made
+# fleet-client fall back to built-in defaults — wrong server/group — and broke
+# the local UI password). Owned by pi, mode 600 keeps the PSK/password private.
+chown pi:pi /etc/fleet-client/config.json
 chmod 600 /etc/fleet-client/config.json
 
-# Media dir ownership (daemons run as pi)
+# Media dir + client tree + config dir ownership (daemons run as pi)
 chown -R pi:pi /opt/fleet-media /opt/fleet-client 2>/dev/null || true
+chown pi:pi /etc/fleet-client 2>/dev/null || true
 
 # ── systemd units ──
 cp /opt/fleet-client/fleet-player.service        /etc/systemd/system/
 cp /opt/fleet-client/fleet-client.service        /etc/systemd/system/
 cp /opt/fleet-client/fleet-local-control.service /etc/systemd/system/
+cp /opt/fleet-client/fleet-keyboard.service      /etc/systemd/system/
 cp /opt/fleet-client/onboarding/fleet-onboard.service /etc/systemd/system/
 
 systemctl daemon-reload
 systemctl enable fleet-onboard.service \
                  fleet-player.service \
                  fleet-client.service \
-                 fleet-local-control.service
+                 fleet-local-control.service \
+                 fleet-keyboard.service
 
 # Free tty1 for mpv DRM (no autologin needed; mpv talks to KMS directly)
 systemctl disable getty@tty1.service 2>/dev/null || true

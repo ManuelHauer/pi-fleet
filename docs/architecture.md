@@ -40,6 +40,13 @@
     volume/mute, identify, restart player, sync now, play-from-SD,
     Wi-Fi reset, reboot.
 
+- **Keyboard Control (Pi)** — `client/keyboard_control.py`, `fleet-keyboard.service`
+  - A USB keyboard plugged into the Pi drives playback with no phone/network:
+    volume/mute, rotation, slideshow speed (transport: next/prev/pause).
+  - Settings go through `player-settings.json` (same live-apply path as the
+    dashboard/phone UI); transport actions go straight to mpv IPC. Hot-plug
+    aware; reads `/dev/input` via the `input` group (evdev).
+
 - **Onboarding (Pi)** — `client/onboarding/`, `fleet-onboard.service`
   - **NetworkManager-native** (nmcli): venue profile with autoconnect,
     onboarding hotspot via NM shared mode (10.42.0.1), captive-portal DNS

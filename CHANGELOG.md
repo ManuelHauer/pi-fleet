@@ -1,5 +1,33 @@
 # Changelog
 
+## v0.4 — July 2026 (keyboard control + hardware-test fixes)
+
+First run on real hardware (Raspberry Pi 4 / Raspberry Pi OS Trixie). See
+[docs/hardware-test-findings.md](docs/hardware-test-findings.md).
+
+### New feature
+- **USB-keyboard control** (`client/keyboard_control.py`, `fleet-keyboard.service`):
+  a keyboard plugged into a Pi controls playback — volume/mute, screen rotation,
+  slideshow speed, next/previous, pause — for venues with no phone/network.
+  Settings go through the same live-apply path (player-settings.json → mpv IPC)
+  so keyboard, phone UI and dashboard stay in sync. Hot-plug aware. Needs
+  `python3-evdev` (added to the golden image).
+
+### Fixes from the hardware test (also apply to v0.3 deployments)
+- **Provisioning: grow rootfs before apt.** Stock root is ~2 GB with auto-expand
+  disabled; `apt install` ran out of space before the media-partition step grew
+  it. Reordered; exfatprogs installed on demand.
+- **Player black screen:** PIL couldn't save the idle/setup card to a `.tmp`
+  name (`unknown file extension`). Save with explicit `format="PNG"`.
+- **Onboarding stole the Wi-Fi radio:** it raced NetworkManager and raised the
+  setup hotspot before the venue Wi-Fi connected. Now waits for any Wi-Fi
+  profile to come online first.
+- **config.json unreadable by the service user:** written root-only, but daemons
+  run as `pi` → wrong-server defaults, no registration. `chown pi:pi`.
+- **Release (unpin) ~70 s late:** heartbeat race re-pinned the device; now
+  reports `pinned=0` before re-polling → swaps back in one cycle.
+- Tailscale install made non-fatal.
+
 ## v0.3 — July 2026 (refactor + festival features)
 
 Full refactor pass over the v0.2 stack. The architecture (split daemons,

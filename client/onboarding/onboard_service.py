@@ -162,10 +162,24 @@ def main():
         setup_config.mark_applied(cfg_path)  # non-wifi parts are applied either way
 
     # 2a. Already online? Wi-Fi may be configured OUTSIDE our system (Imager
-    # custom.toml, Ethernet, manual nmcli) — never tear that down with an AP.
+    # preseed / 'preconfigured' profile, Ethernet, manual nmcli) — never tear
+    # that down with an AP.
     if nm_manager.get_ip():
         finish(device_id, via=f"already connected ({nm_manager.get_current_ssid() or 'ethernet'})")
         return
+
+    # 2a-bis. If ANY Wi-Fi profile exists, give NetworkManager time to finish
+    # auto-connecting it before we decide to raise the setup hotspot. Onboarding
+    # runs early at boot and would otherwise race NM and grab the radio for the
+    # AP microseconds before the venue Wi-Fi would have come up (hardware-test
+    # finding: a preseeded Pi booted straight into hotspot mode).
+    if nm_manager.has_any_wifi_profile():
+        log.info("Wi-Fi profile present — waiting up to 45s for NM auto-connect…")
+        ip = nm_manager.wait_online(45)
+        if ip:
+            finish(device_id, via=f"auto-connected ({nm_manager.get_current_ssid() or ip})")
+            return
+        log.warning("Wi-Fi profile exists but didn't come up in 45s")
 
     # 2b. Existing venue profile (previous onboarding)
     if nm_manager.has_venue_profile():
