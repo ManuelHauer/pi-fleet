@@ -335,7 +335,13 @@ class MpvProcess:
 
         cmd = [
             "mpv",
-            "--vo=drm",
+            # GPU rendering via KMS: scaling AND the 180° flip are free shader
+            # ops (vo=drm did both on the CPU → choppy small videos). ",drm"
+            # keeps the old software path as automatic fallback if GLES/GBM
+            # init fails on some unit.
+            "--vo=gpu,drm",
+            "--gpu-context=drm",
+            "--hwdec=auto-safe",
             "--ao=alsa",
             "--fullscreen",
             "--loop-playlist=inf",

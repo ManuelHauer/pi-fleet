@@ -17,7 +17,8 @@
 # Venue network the Pi should join — skips the phone/captive-portal step.
 ssid = "VenueWiFi-Name"
 password = "the-venue-password"
-# hidden = false        # true if the SSID is not broadcast
+hidden = false          # set true for networks that do NOT broadcast their
+                        # SSID (the Pi then probes for it actively)
 # country = "AT"        # Wi-Fi regulatory domain (default: image setting)
 
 [device]
@@ -25,6 +26,8 @@ password = "the-venue-password"
 label = "OK Linz — Mediendeck, left screen"
 group = "ok-linz"       # venue/group for bulk media assignment
 # location = "OK Linz"  # free-text venue name
+# hostname_prefix = "aef-pi"  # each Pi names itself <prefix>-<3-hex checksum
+                              # of its device id>, e.g. aef-pi-4a7
 
 [player]
 # Playback defaults for this device (changeable later via dashboard/local UI).

@@ -264,6 +264,7 @@ CONTROL_HTML = """<!DOCTYPE html>
                 background:#1b1b28; color:var(--ink); font-size:14px; font-weight:500; cursor:pointer; }
   .action-btn:active { background:var(--accent-soft); }
   .action-btn.danger { border-color:rgba(255,107,107,.35); color:var(--bad); }
+  .action-btn.on { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:700; }
   .action-btn:disabled { opacity:.4; }
 
   .toast { position:fixed; bottom:calc(22px + env(safe-area-inset-bottom)); left:50%; transform:translateX(-50%);
@@ -288,14 +289,9 @@ CONTROL_HTML = """<!DOCTYPE html>
 
   <!-- Playback settings -->
   <div class="card">
-    <div class="card-title">Screen rotation</div>
-    <div class="seg" id="rotSeg">
-      <button data-rot="0">0°</button>
-      <button data-rot="90">90°</button>
-      <button data-rot="180">180°</button>
-      <button data-rot="270">270°</button>
-    </div>
-    <div class="hint">Applied instantly — playback keeps running.</div>
+    <div class="card-title">Screen flip</div>
+    <button class="action-btn" id="flipBtn" onclick="toggleFlip()">↕ Flip image 180°</button>
+    <div class="hint">For screens mounted upside down. Applied instantly — playback keeps running.</div>
   </div>
 
   <div class="card">
@@ -366,10 +362,11 @@ let volTimer = null, durTimer = null, pendingDur = null;
 
 function render() {
   const set = S.settings || {};
-  // rotation
-  document.querySelectorAll('#rotSeg button').forEach(b => {
-    b.classList.toggle('active', parseInt(b.dataset.rot) === (set.rotation || 0));
-  });
+  // flip (rotation 0 or 180)
+  const fb = document.getElementById('flipBtn');
+  const flipped = (set.rotation || 0) === 180;
+  fb.classList.toggle('on', flipped);
+  fb.textContent = flipped ? '↕ Flipped — tap to reset' : '↕ Flip image 180°';
   // duration (don't clobber while the user is mid-stepping)
   if (pendingDur === null) document.getElementById('durVal').textContent = set.image_duration_s ?? 10;
   // volume
@@ -409,9 +406,10 @@ function saveSettings(patch, msg) {
     }).catch(() => toast('Connection error'));
 }
 
-document.querySelectorAll('#rotSeg button').forEach(b => {
-  b.onclick = () => saveSettings({rotation: parseInt(b.dataset.rot)}, 'Rotation: ' + b.dataset.rot + '°');
-});
+function toggleFlip() {
+  const flipped = (S.settings.rotation || 0) === 180;
+  saveSettings({rotation: flipped ? 0 : 180}, flipped ? 'Normal orientation' : 'Flipped 180°');
+}
 
 function stepDuration(delta) {
   const cur = pendingDur ?? (S.settings.image_duration_s || 10);

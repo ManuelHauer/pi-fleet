@@ -194,24 +194,28 @@ def create_manifest(
 @app.post("/media/upload")
 async def upload_media(
     file: UploadFile = File(...),
+    folder_id: str = Form(None),
     admin=Depends(verify_admin)
 ):
-    """Upload a media file (video/audio/image)."""
+    """Upload a media file (video/audio/image), optionally into a folder."""
+    if folder_id and not db.folder_exists(folder_id):
+        raise HTTPException(400, "Unknown folder")
     content = await file.read()
     checksum = hashlib.sha256(content).hexdigest()
-    
+
     # Use checksum prefix + original name for dedup-safe storage
     ext = Path(file.filename).suffix
     safe_name = f"{checksum[:12]}_{file.filename}"
     dest = MEDIA_DIR / safe_name
     dest.write_bytes(content)
-    
+
     record = db.add_media_file(
         filename=safe_name,
         original_name=file.filename,
         content_type=file.content_type or "application/octet-stream",
         size_bytes=len(content),
-        checksum=checksum
+        checksum=checksum,
+        folder_id=folder_id or None,
     )
     return record
 

@@ -117,9 +117,9 @@ def apply_non_wifi(cfg: dict):
                 current = json.loads(CLIENT_CONFIG.read_text())
             except Exception:
                 pass
-        for key in ("label", "group", "location"):
+        for key in ("label", "group", "location", "hostname_prefix"):
             if device.get(key):
-                current[key if key != "group" else "group"] = str(device[key])
+                current[key] = str(device[key])
         if server.get("url"):
             current["server_url"] = str(server["url"]).rstrip("/")
         if server.get("device_psk"):
