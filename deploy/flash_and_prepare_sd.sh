@@ -63,7 +63,10 @@ fi
 echo "🎬 Flashing Raspberry Pi OS Lite to /dev/$DISK"
 /usr/sbin/diskutil unmountDisk "/dev/$DISK" >/dev/null || true
 
-"$RPI_IMAGER" --cli --disable-eject --first-run-script "$FIRST_RUN" "$OS_URL" "/dev/$DISK"
+# NOTE: no --disable-eject / --first-run-script — rpi-imager 1.8.x CLI does
+# not know them and EXITS 0 WITHOUT FLASHING on unknown options (silent noop,
+# found live). prepare_sd_card.sh arms the first-boot hook itself now.
+"$RPI_IMAGER" --cli "$OS_URL" "/dev/$DISK"
 
 echo "✅ Flash complete. Mounting boot partition…"
 /usr/sbin/diskutil mount "/dev/${DISK}s1" >/dev/null || true

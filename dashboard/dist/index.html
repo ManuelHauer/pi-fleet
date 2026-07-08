@@ -368,7 +368,9 @@ function renderDevices() {
       </div>
       <div class="dev-sub">${esc(d.id)} · ${esc(d.group_name || 'default')}${d.location ? ' · ' + esc(d.location) : ''}</div>
       <div class="dev-meta">
-        ${(s.rotation ?? 0) === 180 ? '<span><b>↕ flipped</b></span>' : ''}
+        ${(s.rotation ?? 0) ? `<span><b>⟳ ${s.rotation}°</b></span>` : ''}
+        ${s.flip_h ? '<span><b>⇄ mirror</b></span>' : ''}
+        ${s.flip_v ? '<span><b>⇅ mirror</b></span>' : ''}
         <span>slide <b>${s.image_duration_s ?? '–'}s</b></span>
         <span>vol <b>${s.muted ? '🔇' : (s.volume_pct ?? '–') + '%'}</b></span>
         <span>${on ? 'seen <b>now</b>' : 'seen <b>' + ago(d.last_seen) + '</b>'}</span>
@@ -443,11 +445,16 @@ function renderDrawer(resetPending) {
 
     <div class="section">
       <h3>Playback settings ${on ? '' : '<span style="color:var(--warn)">(offline — applies when back)</span>'}</h3>
-      <div style="font-size:12px;color:var(--dim);margin-bottom:8px">Screen flip</div>
-      <button class="btn-ghost ${(s.rotation ?? 0) === 180 ? 'on' : ''}" style="width:100%"
-        onclick="pushSettings('${esc(d.id)}',{rotation:${(s.rotation ?? 0) === 180 ? 0 : 180}})">
-        ${(s.rotation ?? 0) === 180 ? '↕ Flipped — click to reset' : '↕ Flip image 180° (screen mounted upside down)'}
-      </button>
+      <div style="font-size:12px;color:var(--dim);margin-bottom:8px">Rotation (portrait mounts, upside-down)</div>
+      <div class="seg">
+        ${[0,90,180,270].map(r => `<button class="${(s.rotation ?? 0) === r ? 'active' : ''}"
+          onclick="pushSettings('${esc(d.id)}',{rotation:${r}})">${r}°</button>`).join('')}
+      </div>
+      <div class="row-btns" style="margin-top:8px">
+        <button class="btn-ghost ${s.flip_h ? 'on' : ''}" onclick="pushSettings('${esc(d.id)}',{flip_h:${s.flip_h ? 'false' : 'true'}})">⇄ Mirror horiz</button>
+        <button class="btn-ghost ${s.flip_v ? 'on' : ''}" onclick="pushSettings('${esc(d.id)}',{flip_v:${s.flip_v ? 'false' : 'true'}})">⇅ Mirror vert</button>
+      </div>
+      <div class="settings-note" style="margin-top:8px">Rotation for portrait/upside-down mounts. Mirror for rear-projection / mirror optics. All applied live.</div>
       <div style="font-size:12px;color:var(--dim);margin:14px 0 8px">Slide duration (images)</div>
       <div class="stepper">
         <button onclick="stepDur('${esc(d.id)}',-5)">−5</button>

@@ -64,6 +64,27 @@ The keyboard-control feature (v0.4) was built and validated in the same session.
 Also: the Tailscale install was made **non-fatal** — an optional-mesh repo/keyring
 hiccup must never abort the whole provisioning.
 
+## Deployment constraints (learned provisioning a Pi 3 B+)
+
+- **Installer must self-heal when the network appears late (fixed).** The real
+  Pi 3 blocker: it booted before the bench had an uplink, so
+  `golden_image_firstrun.sh` failed the ~60 s network wait and the
+  `fleet-firstrun.service` oneshot went to `failed` and just *stayed* there —
+  it does NOT retry when the network shows up minutes later, only on a reboot.
+  Fix: the unit now has `Restart=on-failure` + `RestartSec=30` +
+  `StartLimitIntervalSec=0`, so it keeps retrying until network + install
+  succeed. (Before the fix, the workaround was `systemctl start
+  fleet-firstrun` once the Pi had internet — which is how this Pi 3 completed.)
+- **Wi-Fi band — Model B vs B+.** A Raspberry Pi 3 **Model B** (non-plus) is
+  2.4 GHz-only and cannot join a 5 GHz-only network like `ae-extern`. The board
+  under test turned out to be a **3 Model B+ (dual-band)**, so the band was NOT
+  its problem — but the constraint is real for any plain 3 B in the fleet.
+  Handbook has the band table + mitigations (B+/4/5, wired, or offline kiosk).
+- **Bench topology that works:** a plain switch with the Pis + one uplink to
+  the venue/office LAN (DHCP + internet), powered up BEFORE the Pis (or just
+  wait — the installer now retries). Pis land on the real subnet, install over
+  Ethernet, and register regardless of Wi-Fi band. Recommended HQ bench.
+
 ## Field notes (not bugs, but worth knowing at the festival)
 
 - **Wi-Fi reconnect on DFS channels.** The test network was 5 GHz channel 116

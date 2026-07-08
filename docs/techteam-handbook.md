@@ -1,6 +1,6 @@
 # Ars Festival Media Fleet — Tech Team Handbook
 
-> Version 0.3 · July 2026
+> Version 0.6 · July 2026
 
 ---
 
@@ -26,6 +26,22 @@ A freshly-installed Pi **never** shows a black screen: it boots into an info car
 - Power supply (USB-C for Pi 4/5, micro-USB for 3B+)
 - Your phone (only if the card was NOT pre-primed)
 
+> ### ⚠ Wi-Fi band — check before assigning a Pi to a venue
+> **A Raspberry Pi 3 Model B has 2.4 GHz Wi-Fi ONLY.** If a venue's Wi-Fi is
+> **5 GHz-only**, a Pi 3 B *cannot see it at all* and will never onboard over
+> Wi-Fi. Know your hardware:
+>
+> | Model | Wi-Fi bands |
+> |---|---|
+> | Pi 3 Model **B** | 2.4 GHz only |
+> | Pi 3 Model **B+** | 2.4 + 5 GHz |
+> | Pi 4 / Pi 5 | 2.4 + 5 GHz |
+>
+> For a 5 GHz-only venue, send a **B+/4/5** — or run the Pi 3 B on **wired
+> Ethernet** or as an **offline USB/SD kiosk** (drop media on the FLEET-MEDIA
+> partition; no network needed). The dashboard's device panel shows each Pi's
+> model, so you can spot 3 B units.
+
 ### Zero-touch (pre-primed card)
 If the SD card was prepared with a `fleet-setup.toml` (venue Wi-Fi pre-filled — see §7), there is **nothing to do**: connect HDMI + power, wait ~2 minutes, the Pi joins the venue Wi-Fi and starts playback/idle card by itself.
 
@@ -48,13 +64,15 @@ Put a `wifi.json` on a USB stick, plug in, reboot:
 
 ---
 
-## 2. Controlling a Device (Rotation, Slides, Volume)
+## 2. Controlling a Device (Orientation, Slides, Volume)
 
 Each Pi runs a **local control panel**: open `http://<pi-ip>:8080` on any device in the same network and enter the tech password. The IP is on the idle card; the **Identify** button in the dashboard flashes it on the venue screen.
 
 | Control | Description |
 |--------|-------------|
-| ↕ **Screen flip** | Flip the image 180° for screens mounted upside down — applies **instantly**, playback keeps running. |
+| ⟳ **Rotation** | 0° / 90° / 180° / 270° — for **portrait (Hochformat) mounts** and upside-down screens. Applies **instantly**, playback keeps running. |
+| ⇄ **Mirror horizontal** | Left-right mirror (rear projection onto glass/scrim, mirror optics). |
+| ⇅ **Mirror vertical** | Top-bottom mirror (periscope/mirror rigs). |
 | ⏱ **Slide duration** | Seconds per image in a slideshow (videos always play full length). Applies from the next slide. |
 | 🔊 Volume + mute | 0–200%, persists across reboots |
 | 📺 Show device info on screen | 30-second on-screen badge (device ID + IP) |
@@ -64,7 +82,7 @@ Each Pi runs a **local control panel**: open `http://<pi-ip>:8080` on any device
 | 📶 Reset Wi-Fi | Clear stored Wi-Fi → setup mode on next reboot |
 | ⟳ Reboot device | Full reboot |
 
-Flip and slide duration can **also** be set per device from the central dashboard (Playback settings section in the device panel) — same effect, applied within one heartbeat (~30 s). The dashboard always shows what the device last reported.
+Rotation, mirror and slide duration can **also** be set per device from the central dashboard (Playback settings section in the device panel) — same effect, applied within one heartbeat (~30 s). The dashboard always shows what the device last reported.
 
 ### Controlling a device with a USB keyboard  *(new in v0.4)*
 
@@ -76,14 +94,16 @@ instant the keyboard is plugged in.
 |---|---|
 | `+` / `−` (or the volume keys) | Volume up / down |
 | `m` (or the mute key) | Mute / unmute |
-| `r` or `f` | Flip the image 180° (toggle, for upside-down mounted screens) |
+| `r` | Rotate 0°→90°→180°→270° (portrait mounts, upside-down) |
+| `h` | Mirror horizontal (rear projection / mirror) |
+| `v` | Mirror vertical |
 | `[` / `]` | Slideshow: slower / faster (image duration ± 2 s) |
 | `→` / `←` (or next/prev track keys) | Next / previous item |
 | `Space` (or play/pause key) | Pause / resume |
 | `i` | **Show this device's IP + phone-control URL on the screen** (~8 s) |
 
 Every keypress **flashes a confirmation on the screen** (e.g. "🔊 Volume 65%",
-"⏸ Paused", "⟳ Rotate 90°"), so you can see what you pressed.
+"⏸ Paused", "⇄ Mirror horizontal ON"), so you can see what you pressed.
 
 Keyboard, phone UI and dashboard all stay in sync — a change made on the
 keyboard shows up in the dashboard on the next heartbeat.
@@ -119,7 +139,7 @@ Playback continues through all of this — offline just means "no new content un
 **Recommended:** 1920×1080, H.264, 24–30 fps, 5–15 Mbps. 4K only on Pi 4/5 with H.265.
 
 ### Images
-`.jpg` `.png` `.webp` `.bmp` `.gif` (static) — 1920×1080 recommended. For screens mounted upside down use the **Flip** setting; for portrait installations export the content pre-rotated (1080×1920 shown on a physically rotated screen).
+`.jpg` `.png` `.webp` `.bmp` `.gif` (static) — 1920×1080 recommended. For portrait (Hochformat) or upside-down mounts, set the **Rotation** (0/90/180/270°) in the dashboard/phone UI — no need to pre-rotate the file. Mirror settings handle rear-projection.
 
 ### Audio
 `.mp3` `.wav` `.flac` `.ogg` `.aac`

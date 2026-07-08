@@ -125,11 +125,31 @@ def _toggle_mute():
     _osd("🔇 Muted" if now_muted else "🔊 Unmuted")
 
 
-def _toggle_flip():
+ROTATIONS = (0, 90, 180, 270)
+
+
+def _cycle_rotation():
     s = load_settings()
-    nxt = 0 if s["rotation"] == 180 else 180
+    try:
+        nxt = ROTATIONS[(ROTATIONS.index(s["rotation"]) + 1) % len(ROTATIONS)]
+    except ValueError:
+        nxt = 0
     save_settings({"rotation": nxt}, updated_by="keyboard")
-    _osd("↕ Flipped 180°" if nxt == 180 else "▯ Normal orientation")
+    _osd(f"⟳ Rotate {nxt}°")
+
+
+def _toggle_mirror_h():
+    s = load_settings()
+    nxt = not s.get("flip_h")
+    save_settings({"flip_h": nxt}, updated_by="keyboard")
+    _osd("⇄ Mirror horizontal ON" if nxt else "⇄ Mirror horizontal off")
+
+
+def _toggle_mirror_v():
+    s = load_settings()
+    nxt = not s.get("flip_v")
+    save_settings({"flip_v": nxt}, updated_by="keyboard")
+    _osd("⇅ Mirror vertical ON" if nxt else "⇅ Mirror vertical off")
 
 
 def _adjust_duration(delta: int):
@@ -179,9 +199,10 @@ def _build_keymap(ec):
         "KEY_MINUS": lambda: _adjust_volume(-VOL_STEP),
         "KEY_MUTE": _toggle_mute,
         "KEY_M": _toggle_mute,
-        # screen flip (180°)
-        "KEY_R": _toggle_flip,
-        "KEY_F": _toggle_flip,
+        # rotation (0->90->180->270) + mirror
+        "KEY_R": _cycle_rotation,
+        "KEY_H": _toggle_mirror_h,   # horizontal mirror
+        "KEY_V": _toggle_mirror_v,   # vertical mirror
         # slide duration
         "KEY_LEFTBRACE": lambda: _adjust_duration(DURATION_STEP),   # '[' slower
         "KEY_RIGHTBRACE": lambda: _adjust_duration(-DURATION_STEP),  # ']' faster
@@ -223,9 +244,9 @@ def main():
         return
 
     keymap, repeatable = _build_keymap(ec)
-    log.info("Fleet keyboard control started. Keys: vol ±/mute, r=rotate, "
-             "[ ]=slide slower/faster, ←/→=prev/next, space=pause, i=show IP. "
-             "Each keypress flashes on-screen feedback.")
+    log.info("Fleet keyboard control started. Keys: vol ±/mute, r=rotate(0/90/180/270), "
+             "h=mirror-horiz, v=mirror-vert, [ ]=slide slower/faster, "
+             "←/→=prev/next, space=pause, i=show IP. On-screen feedback per key.")
 
     devices = {}   # path -> InputDevice
     last_scan = 0.0

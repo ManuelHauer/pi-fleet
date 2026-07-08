@@ -55,6 +55,8 @@ with a device ID, and the device appears in the dashboard.
 
 ## Golden-image cloning (optional, for large batches)
 
+**Tooling: [`deploy/golden/`](../deploy/golden/) — `capture_golden.sh` (sysprep + image a master) and `flash_clone.sh` (write image + stamp per-card venue Wi-Fi/label). See its README.** The notes below are the rationale.
+
 After ONE card has completed first boot, you can clone it (`dd`) to same-size
 cards instead of re-running first boot per card. Notes:
 - device identity comes from the Pi's SoC serial, so clones do NOT collide;

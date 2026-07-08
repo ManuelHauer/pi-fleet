@@ -353,6 +353,7 @@ class MpvProcess:
             f"--volume={settings['volume_pct']}",
             f"--mute={'yes' if settings['muted'] else 'no'}",
             f"--video-rotate={settings['rotation']}",
+            f"--vf={_flip_chain(settings)}",
             "--osd-font-size=28",
             "--osd-border-size=2",
             "--osd-color=#FFFFFFFF",
@@ -388,10 +389,22 @@ class MpvProcess:
 
 # ── Live settings apply ──
 
+def _flip_chain(s: dict) -> str:
+    """mpv --vf value for the mirror settings. hflip/vflip are cheap pixel-
+    reorder filters (no scaling/interpolation) — much lighter than the CPU
+    rotation we removed. Empty string = no filter."""
+    vf = []
+    if s.get("flip_h"):
+        vf.append("hflip")
+    if s.get("flip_v"):
+        vf.append("vflip")
+    return ",".join(vf)
+
+
 def apply_settings_live(mpv: "MpvProcess") -> bool:
     """Push the current player-settings.json values into the running mpv via
-    IPC. No restart: rotation, image duration, volume and mute are all
-    runtime-settable properties. Returns True if mpv answered."""
+    IPC. No restart: rotation, mirror, image duration, volume and mute are all
+    runtime-settable. Returns True if mpv answered."""
     if not _ipc_alive():
         return False
     s = load_settings()
@@ -403,13 +416,16 @@ def apply_settings_live(mpv: "MpvProcess") -> bool:
     ):
         r = _ipc_send({"command": ["set_property", prop, value]})
         ok = ok and bool(r) and r.get("error") == "success"
+    # Mirror: replace the whole user filter chain (empty clears it)
+    r = _ipc_send({"command": ["vf", "set", _flip_chain(s)]})
+    ok = ok and bool(r) and r.get("error") == "success"
     # While idle we keep image-display-duration=inf so the info card stays up.
     if not mpv.is_idle:
         r = _ipc_send({"command": ["set_property", "image-display-duration",
                                    s["image_duration_s"]]})
         ok = ok and bool(r) and r.get("error") == "success"
-    log.info(f"Settings applied live: rot={s['rotation']} vol={s['volume_pct']} "
-             f"mute={s['muted']} imgdur={s['image_duration_s']}s (ok={ok})")
+    log.info(f"Settings applied live: rot={s['rotation']} flip={_flip_chain(s) or 'none'} "
+             f"vol={s['volume_pct']} mute={s['muted']} imgdur={s['image_duration_s']}s (ok={ok})")
     return ok
 
 
