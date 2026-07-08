@@ -70,7 +70,9 @@ Each Pi runs a **local control panel**: open `http://<pi-ip>:8080` on any device
 
 | Control | Description |
 |--------|-------------|
-| ↕ **Screen flip** | Flip the image 180° for screens mounted upside down — applies **instantly**, playback keeps running. |
+| ↕ **Flip 180°** | Upside-down mounted screens — applies **instantly**, playback keeps running. |
+| ⇄ **Mirror horizontal** | Left-right mirror (rear projection onto glass/scrim, mirror optics). |
+| ⇅ **Mirror vertical** | Top-bottom mirror (periscope/mirror rigs). |
 | ⏱ **Slide duration** | Seconds per image in a slideshow (videos always play full length). Applies from the next slide. |
 | 🔊 Volume + mute | 0–200%, persists across reboots |
 | 📺 Show device info on screen | 30-second on-screen badge (device ID + IP) |
@@ -92,7 +94,9 @@ instant the keyboard is plugged in.
 |---|---|
 | `+` / `−` (or the volume keys) | Volume up / down |
 | `m` (or the mute key) | Mute / unmute |
-| `r` or `f` | Flip the image 180° (toggle, for upside-down mounted screens) |
+| `f` (or `r`) | Flip 180° (upside-down mounted screens) |
+| `h` | Mirror horizontal (rear projection / mirror) |
+| `v` | Mirror vertical |
 | `[` / `]` | Slideshow: slower / faster (image duration ± 2 s) |
 | `→` / `←` (or next/prev track keys) | Next / previous item |
 | `Space` (or play/pause key) | Pause / resume |

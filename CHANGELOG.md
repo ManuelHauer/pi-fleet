@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.6 — July 2026 (horizontal/vertical mirror)
+
+- **Mirror** the image independently of the 180° flip: `flip_h` (horizontal /
+  left-right, for rear-projection onto glass or mirror optics) and `flip_v`
+  (vertical / top-bottom). Done with mpv's `hflip`/`vflip` video filters —
+  cheap pixel-reorder, applied **live via IPC with zero dropped frames** on the
+  GPU path (measured on a Pi 5), so no Wayland compositor is needed. Available
+  in the dashboard device panel, the phone UI, and the keyboard (`h` = mirror
+  horizontal, `v` = mirror vertical; `f` still = flip 180°). Reported back in
+  the heartbeat and shown on the device cards.
+
 ## v0.5 — July 2026 (flip via GPU, hostnames, media folders, edge-nginx)
 
 ### Changed

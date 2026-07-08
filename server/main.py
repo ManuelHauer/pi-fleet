@@ -420,18 +420,24 @@ def admin_send_command(
     return result
 
 
+def _to_bool(v):
+    return v in ("1", "true", "True", "yes", "on")
+
+
 @app.put("/admin/devices/{device_id}/settings")
 def admin_set_device_settings(
     device_id: str,
     rotation: int = Form(None),
+    flip_h: str = Form(None),
+    flip_v: str = Form(None),
     image_duration_s: int = Form(None),
     volume_pct: int = Form(None),
     muted: str = Form(None),
     admin=Depends(verify_admin)
 ):
-    """Push playback settings (rotation / slide duration / volume / mute) to a
-    device. Queues a `set_settings` command; the client applies it live via
-    mpv IPC and reports the applied values back in its next heartbeat."""
+    """Push playback settings (rotation / mirror / slide duration / volume /
+    mute) to a device. Queues a `set_settings` command; the client applies it
+    live via mpv IPC and reports the applied values back in its next heartbeat."""
     if not db.get_device(device_id):
         raise HTTPException(404, "Device not found")
     patch = {}
@@ -439,6 +445,10 @@ def admin_set_device_settings(
         if rotation not in (0, 180):
             raise HTTPException(400, "rotation must be 0 or 180 (flip)")
         patch["rotation"] = rotation
+    if flip_h is not None and flip_h != "":
+        patch["flip_h"] = _to_bool(flip_h)
+    if flip_v is not None and flip_v != "":
+        patch["flip_v"] = _to_bool(flip_v)
     if image_duration_s is not None:
         patch["image_duration_s"] = max(1, min(3600, image_duration_s))
     if volume_pct is not None:

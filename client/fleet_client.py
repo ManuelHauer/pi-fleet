@@ -607,6 +607,8 @@ class FleetClient:
             "ip_address": self._get_hw_info().get("ip_address", ""),
             "settings": json.dumps({
                 "rotation": settings["rotation"],
+                "flip_h": settings["flip_h"],
+                "flip_v": settings["flip_v"],
                 "image_duration_s": settings["image_duration_s"],
                 "volume_pct": settings["volume_pct"],
                 "muted": settings["muted"],
