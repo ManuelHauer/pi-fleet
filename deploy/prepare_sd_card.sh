@@ -69,11 +69,14 @@ fi
 
 # 3. DISABLE the Pi OS auto-expand so setup_media_partition.sh (on the Pi)
 #    can carve the FLEET-MEDIA partition out of the unclaimed space.
+#    Two generations of the mechanism:
+#      Bookworm:  init=/usr/lib/raspi-config/init_resize.sh
+#      Trixie:    a bare 'resize' kernel arg consumed by a systemd service
 CMDLINE="$BOOT_MOUNT/cmdline.txt"
-if [ -f "$CMDLINE" ] && grep -q "init_resize" "$CMDLINE"; then
+if [ -f "$CMDLINE" ] && grep -qE "init_resize|(^| )resize( |$)" "$CMDLINE"; then
   cp "$CMDLINE" "$CMDLINE.bak-fleet"
   # shellcheck disable=SC2016
-  sed -i.tmp -E 's# init=/usr/lib/raspi-config/init_resize\.sh##' "$CMDLINE"
+  sed -i.tmp -E 's# init=/usr/lib/raspi-config/init_resize\.sh##; s#(^| )resize( |$)#\1#; s#  +# #g' "$CMDLINE"
   rm -f "$CMDLINE.tmp"
   echo "  ✓ Auto-expand disabled in cmdline.txt (media partition needs the space)"
 else
@@ -85,7 +88,11 @@ FLEET_BOOT="$BOOT_MOUNT/fleet"
 rm -rf "$FLEET_BOOT/client" "$FLEET_BOOT/deploy" 2>/dev/null || true
 mkdir -p "$FLEET_BOOT/client" "$FLEET_BOOT/deploy"
 
-cp -a "$CLIENT_DIR/." "$FLEET_BOOT/client/"
+# rsync, not cp -a: FAT32 can't take BSD flags/xattrs (cp -a dies with
+# 'chflags: Invalid argument' under set -e) and we don't want __pycache__.
+rsync -r --no-perms --no-owner --no-group \
+      --exclude='__pycache__' --exclude='.DS_Store' --exclude='*.pyc' \
+      "$CLIENT_DIR/" "$FLEET_BOOT/client/"
 echo "  ✓ client/ tree copied"
 
 cp "$SCRIPT_DIR/99-fleet-usb.rules"        "$FLEET_BOOT/deploy/"
