@@ -20,7 +20,11 @@
 #   WIFI_SSID / WIFI_PASSWORD / DEVICE_LABEL / WIFI_HIDDEN=1   quick
 #                          alternative to FLEET_SETUP_FILE — generates
 #                          fleet-setup.toml inline (WIFI_HIDDEN for networks
-#                          that don't broadcast their SSID)
+#                          that don't broadcast their SSID). When WIFI_SSID is
+#                          set, the card ALSO joins that network at the OS level
+#                          on first boot, so the installer is online over Wi-Fi
+#                          with NO Ethernet needed.
+#   WIFI_COUNTRY           Wi-Fi regulatory domain for the OS join (default: AT)
 #   FLEET_PI_PASSWORD      password for the 'pi' user. Needed when the image
 #                          was flashed WITHOUT Raspberry Pi Imager's user
 #                          provisioning (plain rpi-imager --cli / dd) —
@@ -211,6 +215,24 @@ else
       printf 'chown pi:pi /home/pi/.ssh/authorized_keys; chmod 600 /home/pi/.ssh/authorized_keys\n'
     fi
     echo 'systemctl enable ssh 2>/dev/null || true'
+    # OS-level Wi-Fi so the INSTALLER (which downloads packages) is online on
+    # first boot WITHOUT Ethernet. The fleet's own onboarding (fleet-setup.toml)
+    # only runs AFTER the install — too late to provide install-time internet.
+    # This creates the NetworkManager "preconfigured" profile, exactly like
+    # Raspberry Pi Imager's Wi-Fi settings do (that's why the Imager-flashed
+    # Pi 4 never needed a cable).
+    if [ -n "${WIFI_SSID:-}" ]; then
+      WCC="${WIFI_COUNTRY:-AT}"
+      printf 'rfkill unblock wifi 2>/dev/null || true\n'
+      printf 'raspi-config nonint do_wifi_country %q 2>/dev/null || true\n' "$WCC"
+      if [ "${WIFI_HIDDEN:-0}" = "1" ]; then
+        printf 'if [ -x /usr/lib/raspberrypi-sys-mods/imager_custom ]; then /usr/lib/raspberrypi-sys-mods/imager_custom set_wlan -h %q %q %q; fi\n' "$WIFI_SSID" "${WIFI_PASSWORD:-}" "$WCC"
+      else
+        printf 'if [ -x /usr/lib/raspberrypi-sys-mods/imager_custom ]; then /usr/lib/raspberrypi-sys-mods/imager_custom set_wlan %q %q %q; fi\n' "$WIFI_SSID" "${WIFI_PASSWORD:-}" "$WCC"
+      fi
+      # Fallback for images without imager_custom
+      printf 'command -v raspi-config >/dev/null && raspi-config nonint do_wifi_ssid_passphrase %q %q 0 %q 2>/dev/null || true\n' "$WIFI_SSID" "${WIFI_PASSWORD:-}" "${WIFI_HIDDEN:-0}"
+    fi
     echo 'if [ -f /boot/firmware/fleet/pi_firstboot_fleet.sh ]; then bash /boot/firmware/fleet/pi_firstboot_fleet.sh || true;'
     echo 'elif [ -f /boot/fleet/pi_firstboot_fleet.sh ]; then bash /boot/fleet/pi_firstboot_fleet.sh || true; fi'
     echo '# disarm: strip the systemd.run hook and remove this script'
