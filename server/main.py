@@ -442,8 +442,8 @@ def admin_set_device_settings(
         raise HTTPException(404, "Device not found")
     patch = {}
     if rotation is not None:
-        if rotation not in (0, 180):
-            raise HTTPException(400, "rotation must be 0 or 180 (flip)")
+        if rotation not in (0, 90, 180, 270):
+            raise HTTPException(400, "rotation must be 0, 90, 180 or 270")
         patch["rotation"] = rotation
     if flip_h is not None and flip_h != "":
         patch["flip_h"] = _to_bool(flip_h)

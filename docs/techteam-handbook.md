@@ -70,7 +70,7 @@ Each Pi runs a **local control panel**: open `http://<pi-ip>:8080` on any device
 
 | Control | Description |
 |--------|-------------|
-| ↕ **Flip 180°** | Upside-down mounted screens — applies **instantly**, playback keeps running. |
+| ⟳ **Rotation** | 0° / 90° / 180° / 270° — for **portrait (Hochformat) mounts** and upside-down screens. Applies **instantly**, playback keeps running. |
 | ⇄ **Mirror horizontal** | Left-right mirror (rear projection onto glass/scrim, mirror optics). |
 | ⇅ **Mirror vertical** | Top-bottom mirror (periscope/mirror rigs). |
 | ⏱ **Slide duration** | Seconds per image in a slideshow (videos always play full length). Applies from the next slide. |
@@ -82,7 +82,7 @@ Each Pi runs a **local control panel**: open `http://<pi-ip>:8080` on any device
 | 📶 Reset Wi-Fi | Clear stored Wi-Fi → setup mode on next reboot |
 | ⟳ Reboot device | Full reboot |
 
-Flip and slide duration can **also** be set per device from the central dashboard (Playback settings section in the device panel) — same effect, applied within one heartbeat (~30 s). The dashboard always shows what the device last reported.
+Rotation, mirror and slide duration can **also** be set per device from the central dashboard (Playback settings section in the device panel) — same effect, applied within one heartbeat (~30 s). The dashboard always shows what the device last reported.
 
 ### Controlling a device with a USB keyboard  *(new in v0.4)*
 
@@ -94,7 +94,7 @@ instant the keyboard is plugged in.
 |---|---|
 | `+` / `−` (or the volume keys) | Volume up / down |
 | `m` (or the mute key) | Mute / unmute |
-| `f` (or `r`) | Flip 180° (upside-down mounted screens) |
+| `r` | Rotate 0°→90°→180°→270° (portrait mounts, upside-down) |
 | `h` | Mirror horizontal (rear projection / mirror) |
 | `v` | Mirror vertical |
 | `[` / `]` | Slideshow: slower / faster (image duration ± 2 s) |
@@ -139,7 +139,7 @@ Playback continues through all of this — offline just means "no new content un
 **Recommended:** 1920×1080, H.264, 24–30 fps, 5–15 Mbps. 4K only on Pi 4/5 with H.265.
 
 ### Images
-`.jpg` `.png` `.webp` `.bmp` `.gif` (static) — 1920×1080 recommended. For screens mounted upside down use the **Flip** setting; for portrait installations export the content pre-rotated (1080×1920 shown on a physically rotated screen).
+`.jpg` `.png` `.webp` `.bmp` `.gif` (static) — 1920×1080 recommended. For portrait (Hochformat) or upside-down mounts, set the **Rotation** (0/90/180/270°) in the dashboard/phone UI — no need to pre-rotate the file. Mirror settings handle rear-projection.
 
 ### Audio
 `.mp3` `.wav` `.flac` `.ogg` `.aac`

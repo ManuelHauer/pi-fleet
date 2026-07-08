@@ -289,12 +289,17 @@ CONTROL_HTML = """<!DOCTYPE html>
 
   <!-- Playback settings -->
   <div class="card">
-    <div class="card-title">Orientation</div>
-    <button class="action-btn" id="flipBtn" onclick="toggleFlip()">↕ Flip image 180°</button>
-    <button class="action-btn" id="mirrorHBtn" onclick="toggleMirror('flip_h')">⇄ Mirror horizontal</button>
+    <div class="card-title">Rotation</div>
+    <div class="seg" id="rotSeg">
+      <button data-rot="0">0°</button>
+      <button data-rot="90">90°</button>
+      <button data-rot="180">180°</button>
+      <button data-rot="270">270°</button>
+    </div>
+    <button class="action-btn" id="mirrorHBtn" style="margin-top:10px" onclick="toggleMirror('flip_h')">⇄ Mirror horizontal</button>
     <button class="action-btn" id="mirrorVBtn" onclick="toggleMirror('flip_v')">⇅ Mirror vertical</button>
-    <div class="hint">Flip 180° = upside-down mount. Mirror = rear-projection / mirror optics.
-      Applied instantly — playback keeps running.</div>
+    <div class="hint">Rotate for portrait/upside-down mounts (0/90/180/270°).
+      Mirror = rear-projection / mirror optics. Applied instantly — playback keeps running.</div>
   </div>
 
   <div class="card">
@@ -366,10 +371,9 @@ let volTimer = null, durTimer = null, pendingDur = null;
 function render() {
   const set = S.settings || {};
   // flip (rotation 0 or 180)
-  const fb = document.getElementById('flipBtn');
-  const flipped = (set.rotation || 0) === 180;
-  fb.classList.toggle('on', flipped);
-  fb.textContent = flipped ? '↕ Flipped 180° — tap to reset' : '↕ Flip image 180°';
+  document.querySelectorAll('#rotSeg button').forEach(b => {
+    b.classList.toggle('active', parseInt(b.dataset.rot) === (set.rotation || 0));
+  });
   const mh = document.getElementById('mirrorHBtn');
   mh.classList.toggle('on', !!set.flip_h);
   mh.textContent = set.flip_h ? '⇄ Mirrored horizontal — tap to reset' : '⇄ Mirror horizontal';
@@ -415,10 +419,9 @@ function saveSettings(patch, msg) {
     }).catch(() => toast('Connection error'));
 }
 
-function toggleFlip() {
-  const flipped = (S.settings.rotation || 0) === 180;
-  saveSettings({rotation: flipped ? 0 : 180}, flipped ? 'Normal orientation' : 'Flipped 180°');
-}
+document.querySelectorAll('#rotSeg button').forEach(b => {
+  b.onclick = () => saveSettings({rotation: parseInt(b.dataset.rot)}, 'Rotation: ' + b.dataset.rot + '°');
+});
 function toggleMirror(key) {
   const on = !S.settings[key];
   const patch = {}; patch[key] = on;

@@ -125,11 +125,17 @@ def _toggle_mute():
     _osd("🔇 Muted" if now_muted else "🔊 Unmuted")
 
 
-def _toggle_flip():
+ROTATIONS = (0, 90, 180, 270)
+
+
+def _cycle_rotation():
     s = load_settings()
-    nxt = 0 if s["rotation"] == 180 else 180
+    try:
+        nxt = ROTATIONS[(ROTATIONS.index(s["rotation"]) + 1) % len(ROTATIONS)]
+    except ValueError:
+        nxt = 0
     save_settings({"rotation": nxt}, updated_by="keyboard")
-    _osd("↕ Flipped 180°" if nxt == 180 else "▯ Normal orientation")
+    _osd(f"⟳ Rotate {nxt}°")
 
 
 def _toggle_mirror_h():
@@ -193,9 +199,8 @@ def _build_keymap(ec):
         "KEY_MINUS": lambda: _adjust_volume(-VOL_STEP),
         "KEY_MUTE": _toggle_mute,
         "KEY_M": _toggle_mute,
-        # screen flip (180°) + mirror
-        "KEY_R": _toggle_flip,
-        "KEY_F": _toggle_flip,
+        # rotation (0->90->180->270) + mirror
+        "KEY_R": _cycle_rotation,
         "KEY_H": _toggle_mirror_h,   # horizontal mirror
         "KEY_V": _toggle_mirror_v,   # vertical mirror
         # slide duration
@@ -239,7 +244,7 @@ def main():
         return
 
     keymap, repeatable = _build_keymap(ec)
-    log.info("Fleet keyboard control started. Keys: vol ±/mute, f=flip180, "
+    log.info("Fleet keyboard control started. Keys: vol ±/mute, r=rotate(0/90/180/270), "
              "h=mirror-horiz, v=mirror-vert, [ ]=slide slower/faster, "
              "←/→=prev/next, space=pause, i=show IP. On-screen feedback per key.")
 

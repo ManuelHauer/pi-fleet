@@ -35,11 +35,12 @@ DEFAULTS = {
     "muted": False,
 }
 
-# Flip-only since v0.5: the sole real-world case is upside-down mounted
-# screens, and arbitrary 90/270 rotation caused CPU-choppy playback on the
-# old vo=drm path. Legacy values (90/270) coerce to 0. Mirroring is separate
-# (flip_h/flip_v) and done with mpv's cheap hflip/vflip video filters.
-VALID_ROTATIONS = (0, 180)
+# Full rotation restored in v0.6.1: portrait (Hochformat) mounts need 90/270.
+# The choppiness that made us drop 90/270 in v0.5 was the OLD --vo=drm software
+# path; on --vo=gpu all four rotations are GPU-accelerated and free (measured
+# 0 dropped frames at 90/180/270 on a Pi 5). Mirroring is separate (flip_h/
+# flip_v) via mpv's hflip/vflip filters.
+VALID_ROTATIONS = (0, 90, 180, 270)
 
 
 def _clamp(settings: dict) -> dict:

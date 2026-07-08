@@ -1,7 +1,12 @@
 # Changelog
 
-## v0.6 — July 2026 (horizontal/vertical mirror)
+## v0.6 — July 2026 (full orientation: rotation + mirror)
 
+- **Restored full rotation** 0/90/180/270 (dashboard 4-way selector, phone UI,
+  keyboard `r` cycles). Needed for **portrait (Hochformat) mounts** and
+  upside-down screens. The v0.5 "flip-180-only" limit was because rotation was
+  CPU-choppy on the old vo=drm path; on vo=gpu all four rotations are GPU-
+  accelerated and free (measured 0 dropped frames at 90/180/270 on a Pi 5).
 - **Mirror** the image independently of the 180° flip: `flip_h` (horizontal /
   left-right, for rear-projection onto glass or mirror optics) and `flip_v`
   (vertical / top-bottom). Done with mpv's `hflip`/`vflip` video filters —
