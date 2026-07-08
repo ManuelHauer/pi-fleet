@@ -1,6 +1,6 @@
 # Ars Festival Media Fleet — Tech Team Handbook
 
-> Version 0.3 · July 2026
+> Version 0.6 · July 2026
 
 ---
 
@@ -64,7 +64,7 @@ Put a `wifi.json` on a USB stick, plug in, reboot:
 
 ---
 
-## 2. Controlling a Device (Rotation, Slides, Volume)
+## 2. Controlling a Device (Orientation, Slides, Volume)
 
 Each Pi runs a **local control panel**: open `http://<pi-ip>:8080` on any device in the same network and enter the tech password. The IP is on the idle card; the **Identify** button in the dashboard flashes it on the venue screen.
 
@@ -103,7 +103,7 @@ instant the keyboard is plugged in.
 | `i` | **Show this device's IP + phone-control URL on the screen** (~8 s) |
 
 Every keypress **flashes a confirmation on the screen** (e.g. "🔊 Volume 65%",
-"⏸ Paused", "⟳ Rotate 90°"), so you can see what you pressed.
+"⏸ Paused", "⇄ Mirror horizontal ON"), so you can see what you pressed.
 
 Keyboard, phone UI and dashboard all stay in sync — a change made on the
 keyboard shows up in the dashboard on the next heartbeat.
