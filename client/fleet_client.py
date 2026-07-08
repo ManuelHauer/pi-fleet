@@ -93,6 +93,7 @@ class FleetClient:
 
         # State machine memory
         self._server_reachable = False
+        self._registered = False  # becomes True once /device/register succeeds
         self._osd_clear_at: Optional[float] = None  # monotonic deadline to delete OSD file
 
     # ── Config & identity ──
@@ -567,7 +568,7 @@ class FleetClient:
 
     # ── Heartbeat & commands ──
 
-    def register(self):
+    def register(self) -> bool:
         hw = self._get_hw_info()
         data = {
             "device_id": self.device_id,
@@ -582,8 +583,10 @@ class FleetClient:
         result = self._api_call("POST", "/device/register", data)
         if result:
             log.info(f"Registered: {result}")
-        else:
-            log.warning("Registration failed — will retry on next heartbeat")
+            self._registered = True
+            return True
+        log.warning("Registration failed — will retry")
+        return False
 
     def _heartbeat(self) -> list:
         stats = self._get_health_stats()
@@ -794,6 +797,15 @@ class FleetClient:
                         log.error(f"SD media check error: {e}")
 
                     if self._server_reachable:
+                        # Register before heartbeating until it sticks. The
+                        # startup register is skipped if the network wasn't up
+                        # yet; without this retry the device never gets a row and
+                        # every heartbeat 500s on the FK. (hardware finding)
+                        if not self._registered:
+                            try:
+                                self.register()
+                            except Exception as e:
+                                log.error(f"Register error: {e}")
                         if not self._is_pinned():
                             try:
                                 self._poll_manifest()

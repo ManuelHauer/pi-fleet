@@ -324,6 +324,15 @@ def record_heartbeat(device_id: str, manifest_version: str = None,
                      settings: str = None,
                      extra: dict = None) -> dict:
     with get_db() as db:
+        # Self-heal: a heartbeat can legitimately arrive before /device/register
+        # succeeds — a Pi that boots before its network is up skips the one-shot
+        # startup register, then heartbeats once the network appears. Without a
+        # device row the heartbeat INSERT hits a FOREIGN KEY error (500) forever
+        # and the device never shows up. Create a minimal row on first contact;
+        # a later register() fills in hostname/label/model.
+        if not db.execute("SELECT 1 FROM devices WHERE id=?", (device_id,)).fetchone():
+            db.execute("""INSERT INTO devices (id, last_seen, registered_at, status)
+                          VALUES (?,?,?,'online')""", (device_id, utcnow(), utcnow()))
         db.execute("""INSERT INTO heartbeats (device_id, timestamp, manifest_version,
                       vlc_status, cpu_temp, disk_free_mb, uptime_seconds, extra)
                       VALUES (?,?,?,?,?,?,?,?)""",
