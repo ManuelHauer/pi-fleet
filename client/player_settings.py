@@ -33,14 +33,20 @@ DEFAULTS = {
     "muted": False,
 }
 
-VALID_ROTATIONS = (0, 90, 180, 270)
+# Flip-only since v0.5: the sole real-world case is upside-down mounted
+# screens, and arbitrary 90/270 rotation caused CPU-choppy playback on the
+# old vo=drm path. Legacy values (90/270) coerce to 0.
+VALID_ROTATIONS = (0, 180)
 
 
 def _clamp(settings: dict) -> dict:
     """Coerce values into their valid ranges; drop anything unknown."""
     out = {}
-    rot = settings.get("rotation", 0)
-    out["rotation"] = int(rot) if int(rot) in VALID_ROTATIONS else 0
+    try:
+        rot = int(settings.get("rotation", 0))
+    except (TypeError, ValueError):
+        rot = 0
+    out["rotation"] = rot if rot in VALID_ROTATIONS else 0
     dur = settings.get("image_duration_s", DEFAULTS["image_duration_s"])
     try:
         out["image_duration_s"] = max(1, min(3600, int(float(dur))))

@@ -65,9 +65,14 @@ def main():
     except Exception as e:
         print(f"warning: /etc/hosts update failed: {e}")
 
-    # re-announce the new name on mDNS
-    subprocess.run(["systemctl", "try-restart", "avahi-daemon"],
-                   check=False, timeout=20)
+    # Re-announce the new name on mDNS. MUST be --no-block: this script runs
+    # inside a oneshot unit ordered Before=avahi-daemon, so a synchronous
+    # restart would deadlock behind our own start job (hardware finding).
+    try:
+        subprocess.run(["systemctl", "try-restart", "--no-block", "avahi-daemon"],
+                       check=False, timeout=10)
+    except Exception as e:
+        print(f"warning: avahi re-announce skipped: {e}")
     print(f"hostname set: {cur} → {want}")
 
 

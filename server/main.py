@@ -436,8 +436,8 @@ def admin_set_device_settings(
         raise HTTPException(404, "Device not found")
     patch = {}
     if rotation is not None:
-        if rotation not in (0, 90, 180, 270):
-            raise HTTPException(400, "rotation must be 0, 90, 180 or 270")
+        if rotation not in (0, 180):
+            raise HTTPException(400, "rotation must be 0 or 180 (flip)")
         patch["rotation"] = rotation
     if image_duration_s is not None:
         patch["image_duration_s"] = max(1, min(3600, image_duration_s))
