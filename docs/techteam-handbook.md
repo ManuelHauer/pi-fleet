@@ -26,6 +26,22 @@ A freshly-installed Pi **never** shows a black screen: it boots into an info car
 - Power supply (USB-C for Pi 4/5, micro-USB for 3B+)
 - Your phone (only if the card was NOT pre-primed)
 
+> ### ⚠ Wi-Fi band — check before assigning a Pi to a venue
+> **A Raspberry Pi 3 Model B has 2.4 GHz Wi-Fi ONLY.** If a venue's Wi-Fi is
+> **5 GHz-only**, a Pi 3 B *cannot see it at all* and will never onboard over
+> Wi-Fi. Know your hardware:
+>
+> | Model | Wi-Fi bands |
+> |---|---|
+> | Pi 3 Model **B** | 2.4 GHz only |
+> | Pi 3 Model **B+** | 2.4 + 5 GHz |
+> | Pi 4 / Pi 5 | 2.4 + 5 GHz |
+>
+> For a 5 GHz-only venue, send a **B+/4/5** — or run the Pi 3 B on **wired
+> Ethernet** or as an **offline USB/SD kiosk** (drop media on the FLEET-MEDIA
+> partition; no network needed). The dashboard's device panel shows each Pi's
+> model, so you can spot 3 B units.
+
 ### Zero-touch (pre-primed card)
 If the SD card was prepared with a `fleet-setup.toml` (venue Wi-Fi pre-filled — see §7), there is **nothing to do**: connect HDMI + power, wait ~2 minutes, the Pi joins the venue Wi-Fi and starts playback/idle card by itself.
 
