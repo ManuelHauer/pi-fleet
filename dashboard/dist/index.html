@@ -96,6 +96,17 @@
   .btn-ghost { padding:12px 18px; border:1px solid var(--line); border-radius:10px; background:var(--card2);
                color:var(--ink); font-size:14px; cursor:pointer; }
   .btn-ghost.danger { color:var(--bad); border-color:rgba(255,107,107,.35); }
+  .btn-ghost.on { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:700; }
+
+  /* ── Folder bar (media tab) ── */
+  .folder-bar { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px; }
+  .fchip { padding:8px 14px; border-radius:999px; border:1px solid var(--line); background:var(--card);
+           color:var(--dim); font-size:13px; cursor:pointer; display:flex; align-items:center; gap:7px; }
+  .fchip.active { border-color:var(--accent); color:var(--ink); background:var(--accent-soft); }
+  .fchip .mini { background:none; border:none; color:var(--dim); cursor:pointer; font-size:12px; padding:0 2px; }
+  .fchip .mini:hover { color:var(--ink); }
+  .ftag { font-size:10px; color:var(--accent); border:1px solid rgba(124,108,240,.4);
+          border-radius:6px; padding:1px 6px; margin-left:6px; white-space:nowrap; }
 
   /* ── Drawer / modal ── */
   .overlay { position:fixed; inset:0; background:rgba(5,5,10,.7); z-index:50; display:none; }
@@ -200,6 +211,7 @@
   <div id="devicesView" class="grid"></div>
 
   <div id="mediaView" style="display:none">
+    <div class="folder-bar" id="folderBar"></div>
     <div class="dropzone" id="dropzone">
       <div style="font-size:26px;margin-bottom:8px">⬆</div>
       <b>Drop media files here</b> or tap to choose<br>
@@ -240,6 +252,7 @@
 const API = location.origin;
 let token = localStorage.getItem('fleet_token') || '';
 let devices = [], media = [], summary = null;
+let folders = [], currentFolder = '';   // '' = all files
 let currentTab = 'devices';
 let drawerDevice = null;
 let refreshTimer = null;
@@ -299,9 +312,10 @@ async function refreshAll(showErrors) {
     const [d, s] = await Promise.all([api('/admin/devices'), api('/admin/summary')]);
     devices = d.devices || []; summary = s;
     if (currentTab === 'media' || media.length === 0) {
-      const m = await api('/media/list'); media = m.files || [];
+      const [m, f] = await Promise.all([api('/media/list'), api('/folders')]);
+      media = m.files || []; folders = f.folders || [];
     }
-    renderChips(); renderGroupFilter(); renderDevices(); renderMedia();
+    renderChips(); renderGroupFilter(); renderDevices(); renderFolders(); renderMedia();
     if (drawerDevice) {
       const upd = devices.find(x => x.id === drawerDevice.id);
       if (upd) { upd._assignments = drawerDevice._assignments; drawerDevice = upd; renderDrawer(false); }
@@ -354,7 +368,7 @@ function renderDevices() {
       </div>
       <div class="dev-sub">${esc(d.id)} · ${esc(d.group_name || 'default')}${d.location ? ' · ' + esc(d.location) : ''}</div>
       <div class="dev-meta">
-        <span>rot <b>${s.rotation ?? 0}°</b></span>
+        ${(s.rotation ?? 0) === 180 ? '<span><b>↕ flipped</b></span>' : ''}
         <span>slide <b>${s.image_duration_s ?? '–'}s</b></span>
         <span>vol <b>${s.muted ? '🔇' : (s.volume_pct ?? '–') + '%'}</b></span>
         <span>${on ? 'seen <b>now</b>' : 'seen <b>' + ago(d.last_seen) + '</b>'}</span>
@@ -429,11 +443,11 @@ function renderDrawer(resetPending) {
 
     <div class="section">
       <h3>Playback settings ${on ? '' : '<span style="color:var(--warn)">(offline — applies when back)</span>'}</h3>
-      <div style="font-size:12px;color:var(--dim);margin-bottom:8px">Screen rotation</div>
-      <div class="seg">
-        ${[0,90,180,270].map(r => `<button class="${(s.rotation ?? 0) === r ? 'active' : ''}"
-          onclick="pushSettings('${esc(d.id)}',{rotation:${r}})">${r}°</button>`).join('')}
-      </div>
+      <div style="font-size:12px;color:var(--dim);margin-bottom:8px">Screen flip</div>
+      <button class="btn-ghost ${(s.rotation ?? 0) === 180 ? 'on' : ''}" style="width:100%"
+        onclick="pushSettings('${esc(d.id)}',{rotation:${(s.rotation ?? 0) === 180 ? 0 : 180}})">
+        ${(s.rotation ?? 0) === 180 ? '↕ Flipped — click to reset' : '↕ Flip image 180° (screen mounted upside down)'}
+      </button>
       <div style="font-size:12px;color:var(--dim);margin:14px 0 8px">Slide duration (images)</div>
       <div class="stepper">
         <button onclick="stepDur('${esc(d.id)}',-5)">−5</button>
@@ -529,23 +543,98 @@ async function unassignOne(mediaId, deviceId) {
   } catch (e) { toast('Failed: ' + e.message, true); }
 }
 
-/* ── Media ── */
+/* ── Media / folders ── */
+function folderName(id) {
+  const f = folders.find(x => x.id === id);
+  return f ? f.name : '';
+}
+function renderFolders() {
+  const bar = document.getElementById('folderBar');
+  if (!bar) return;
+  const chip = (id, label, extra = '') =>
+    `<div class="fchip ${currentFolder === id ? 'active' : ''}" onclick="pickFolder('${esc(id)}')">${label}${extra}</div>`;
+  let html = chip('', `All files (${media.length})`);
+  for (const f of folders) {
+    const n = media.filter(m => m.folder_id === f.id).length;
+    const extra = currentFolder === f.id
+      ? ` <button class="mini" title="Rename" onclick="event.stopPropagation();renameFolder('${esc(f.id)}')">✎</button>
+          <button class="mini" title="Delete folder" onclick="event.stopPropagation();deleteFolder('${esc(f.id)}')">✕</button>`
+      : '';
+    html += chip(f.id, `📁 ${esc(f.name)} (${n})`, extra);
+  }
+  html += `<div class="fchip" onclick="newFolder()">＋ New folder</div>`;
+  bar.innerHTML = html;
+}
+function pickFolder(id) { currentFolder = id; renderFolders(); renderMedia(); }
+async function newFolder() {
+  const name = (window.prompt('Folder name (e.g. venue or artist):') || '').trim();
+  if (!name) return;
+  try {
+    const f = await api('/folders', form({ name }));
+    folders.push(f); currentFolder = f.id;
+    renderFolders(); renderMedia(); toast(`Folder "${name}" created`);
+  } catch (e) { toast('Failed: ' + e.message, true); }
+}
+async function renameFolder(id) {
+  const cur = folderName(id);
+  const name = (window.prompt('Rename folder:', cur) || '').trim();
+  if (!name || name === cur) return;
+  try {
+    await api(`/folders/${id}`, { ...form({ name }), method: 'PUT' });
+    const f = folders.find(x => x.id === id); if (f) f.name = name;
+    renderFolders(); toast('Renamed');
+  } catch (e) { toast('Failed: ' + e.message, true); }
+}
+async function deleteFolder(id) {
+  const n = media.filter(m => m.folder_id === id).length;
+  if (!confirm(`Delete folder "${folderName(id)}"?\n${n} file(s) inside are NOT deleted — they move to "All files".`)) return;
+  try {
+    await api(`/folders/${id}`, { method: 'DELETE' });
+    folders = folders.filter(f => f.id !== id);
+    media.forEach(m => { if (m.folder_id === id) m.folder_id = null; });
+    currentFolder = '';
+    renderFolders(); renderMedia(); toast('Folder deleted (files kept)');
+  } catch (e) { toast('Failed: ' + e.message, true); }
+}
+function openMoveModal(mediaId) {
+  const m = media.find(x => x.id === mediaId);
+  document.getElementById('assignTitle').textContent =
+    `Move "${(m?.original_name || m?.filename || '').slice(0, 36)}" to…`;
+  const body = document.getElementById('assignBody');
+  body.innerHTML = [`<label class="pick"><input type="radio" name="mvf" value="" ${!m.folder_id ? 'checked' : ''}>
+      <span>— No folder —</span></label>`,
+    ...folders.map(f => `<label class="pick"><input type="radio" name="mvf" value="${esc(f.id)}" ${m.folder_id === f.id ? 'checked' : ''}>
+      <span>📁 ${esc(f.name)}</span></label>`)].join('');
+  document.getElementById('assignConfirm').onclick = async () => {
+    const sel = body.querySelector('input[name=mvf]:checked');
+    try {
+      await api(`/media/${mediaId}/move`, form({ folder_id: sel ? sel.value : '' }));
+      m.folder_id = sel && sel.value ? sel.value : null;
+      closeAssign(); renderFolders(); renderMedia(); toast('Moved');
+    } catch (e) { toast('Move failed: ' + e.message, true); }
+  };
+  document.getElementById('assignModal').classList.add('open');
+}
 function renderMedia() {
   const rows = document.getElementById('mediaRows');
-  if (!media.length) {
-    rows.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--dim);padding:30px">No media uploaded yet</td></tr>';
+  const list = currentFolder ? media.filter(m => m.folder_id === currentFolder) : media;
+  if (!list.length) {
+    rows.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--dim);padding:30px">${
+      currentFolder ? 'This folder is empty — drop files above to upload into it' : 'No media uploaded yet'}</td></tr>`;
     return;
   }
-  rows.innerHTML = media.map(m => `<tr>
-    <td class="media-name">${mediaIcon(m.original_name || m.filename)} ${esc(m.original_name || m.filename)}</td>
+  rows.innerHTML = list.map(m => `<tr>
+    <td class="media-name">${mediaIcon(m.original_name || m.filename)} ${esc(m.original_name || m.filename)}${
+      !currentFolder && m.folder_id ? `<span class="ftag">📁 ${esc(folderName(m.folder_id))}</span>` : ''}</td>
     <td>${fmtSize(m.size_bytes)}</td>
     <td id="asg-${esc(m.id)}">…</td>
     <td style="text-align:right;white-space:nowrap">
       <button class="link-btn" onclick="openAssignForMedia('${esc(m.id)}')">assign</button>
+      <button class="link-btn" onclick="openMoveModal('${esc(m.id)}')">move</button>
       <button class="link-btn danger" onclick="deleteMedia('${esc(m.id)}','${esc((m.original_name||m.filename||'').replace(/'/g,''))}')">delete</button>
     </td>
   </tr>`).join('');
-  media.forEach(async (m) => {
+  list.forEach(async (m) => {
     try {
       const a = await api(`/media/${m.id}/assignments`);
       const el = document.getElementById(`asg-${m.id}`);
@@ -584,6 +673,7 @@ function uploadOne(file) {
 
   const fd = new FormData();
   fd.append('file', file);
+  if (currentFolder) fd.append('folder_id', currentFolder);  // upload into the open folder
   const xhr = new XMLHttpRequest();
   xhr.open('POST', `${API}/media/upload`);
   xhr.setRequestHeader('Authorization', `Bearer ${token}`);
@@ -597,8 +687,8 @@ function uploadOne(file) {
     if (xhr.status >= 200 && xhr.status < 300) {
       bar.style.width = '100%'; pct.textContent = '✓';
       setTimeout(() => row.remove(), 1600);
-      try { const m = await api('/media/list'); media = m.files || []; renderMedia(); } catch(e) {}
-      toast(`Uploaded ${file.name}`);
+      try { const m = await api('/media/list'); media = m.files || []; renderFolders(); renderMedia(); } catch(e) {}
+      toast(`Uploaded ${file.name}${currentFolder ? ' → 📁 ' + folderName(currentFolder) : ''}`);
     } else {
       pct.textContent = '✕'; row.style.borderColor = 'var(--bad)';
       toast(`Upload failed: ${file.name}`, true);
@@ -680,7 +770,11 @@ function switchTab(tab) {
   document.getElementById('devicesView').style.display = tab === 'devices' ? 'grid' : 'none';
   document.getElementById('mediaView').style.display = tab === 'media' ? 'block' : 'none';
   document.getElementById('groupFilter').style.display = tab === 'devices' ? 'block' : 'none';
-  if (tab === 'media') api('/media/list').then(m => { media = m.files || []; renderMedia(); }).catch(()=>{});
+  if (tab === 'media') {
+    Promise.all([api('/media/list'), api('/folders')])
+      .then(([m, f]) => { media = m.files || []; folders = f.folders || []; renderFolders(); renderMedia(); })
+      .catch(() => {});
+  }
 }
 function mediaIcon(name) {
   const ext = (name || '').split('.').pop().toLowerCase();

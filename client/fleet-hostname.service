@@ -1,0 +1,12 @@
+[Unit]
+Description=Ars Fleet hostname (<prefix>-<device-id checksum>)
+After=local-fs.target
+Before=avahi-daemon.service fleet-client.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/fleet-client/set_hostname.py
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -212,15 +212,23 @@ def update_device(device_id: str, **fields) -> bool:
 # --- Media file operations ---
 
 def add_media_file(filename: str, original_name: str, content_type: str,
-                   size_bytes: int, checksum: str) -> dict:
+                   size_bytes: int, checksum: str,
+                   folder_id: str = None) -> dict:
     file_id = str(uuid.uuid4())[:8]
     with get_db() as db:
         db.execute("""INSERT INTO media_files (id,filename,original_name,content_type,
-                      size_bytes,checksum_sha256,uploaded_at)
-                      VALUES (?,?,?,?,?,?,?)""",
+                      size_bytes,checksum_sha256,folder_id,uploaded_at)
+                      VALUES (?,?,?,?,?,?,?,?)""",
                    (file_id, filename, original_name, content_type,
-                    size_bytes, checksum, utcnow()))
-        return {"id": file_id, "filename": filename, "checksum": checksum}
+                    size_bytes, checksum, folder_id, utcnow()))
+        return {"id": file_id, "filename": filename, "checksum": checksum,
+                "folder_id": folder_id}
+
+
+def folder_exists(folder_id: str) -> bool:
+    with get_db() as db:
+        return db.execute("SELECT 1 FROM media_folders WHERE id=?",
+                          (folder_id,)).fetchone() is not None
 
 
 def list_media_files() -> list:

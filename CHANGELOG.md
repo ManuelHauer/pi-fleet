@@ -1,5 +1,36 @@
 # Changelog
 
+## v0.5 — July 2026 (flip via GPU, hostnames, media folders, edge-nginx)
+
+### Changed
+- **Rotation → Flip 180°, GPU-accelerated.** The 4-way rotation UI is replaced
+  by a single "Flip image 180°" toggle (dashboard, phone UI, keyboard `r`/`f`)
+  — the only real-world case is upside-down mounted screens. The player now
+  renders via `--vo=gpu --gpu-context=drm --hwdec=auto-safe` (software `drm`
+  as automatic fallback): scaling AND the flip run on the GPU instead of the
+  CPU, fixing choppy playback of small/upscaled videos. (The legacy
+  `display_hdmi_rotate` config.txt option does not exist on the KMS driver
+  that Bookworm/Trixie use — GPU render-time flip is the correct equivalent.)
+- **Per-device hostnames**: every Pi names itself `<prefix>-<3-hex checksum
+  of its device id>` (default `aef-pi-4a7` style) on every boot — clone-safe,
+  mDNS-friendly. Prefix configurable via `FLEET_HOSTNAME_PREFIX` at SD prep,
+  `fleet-boot-config.json`, or `[device].hostname_prefix` in fleet-setup.toml.
+  New `set_hostname.py` + `fleet-hostname.service`.
+
+### Added
+- **Media folders in the dashboard**: chip bar (All files / 📁 per folder /
+  ＋ New), upload lands in the open folder, per-file **move**, rename/delete
+  (deleting a folder keeps its files). Backend folder API existed; the upload
+  endpoint now accepts `folder_id` and the UI exposes it all.
+- **Hidden-SSID preseed** documented + `WIFI_HIDDEN=1` in `prepare_sd_card.sh`
+  (`[wifi].hidden = true` in fleet-setup.toml was already supported —
+  Wi-Fi is configured through NetworkManager profiles, never
+  wpa_supplicant.conf, which current Pi OS ignores).
+- **Edge-VPS deployment (AEC/Emil)**: `deploy/server/nginx-fleet.conf` for the
+  TLS-terminating nginx on the edge VPS + `docker-compose.nginx-edge.yml`
+  (app-only, port 8550 for the VPS to proxy). Decisions + the "no WireGuard
+  needed" clarification recorded in `docs/open-questions-server.md`.
+
 ## v0.4 — July 2026 (keyboard control + hardware-test fixes)
 
 First run on real hardware (Raspberry Pi 4 / Raspberry Pi OS Trixie). See

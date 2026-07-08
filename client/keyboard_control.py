@@ -45,7 +45,6 @@ MPV_IPC_SOCKET = "/tmp/fleet-mpv-ipc"
 RESCAN_INTERVAL = 3.0          # seconds — pick up hot-plugged keyboards
 VOL_STEP = 5
 DURATION_STEP = 2
-ROTATIONS = (0, 90, 180, 270)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -126,14 +125,11 @@ def _toggle_mute():
     _osd("🔇 Muted" if now_muted else "🔊 Unmuted")
 
 
-def _cycle_rotation():
+def _toggle_flip():
     s = load_settings()
-    try:
-        nxt = ROTATIONS[(ROTATIONS.index(s["rotation"]) + 1) % len(ROTATIONS)]
-    except ValueError:
-        nxt = 0
+    nxt = 0 if s["rotation"] == 180 else 180
     save_settings({"rotation": nxt}, updated_by="keyboard")
-    _osd(f"⟳ Rotate {nxt}°")
+    _osd("↕ Flipped 180°" if nxt == 180 else "▯ Normal orientation")
 
 
 def _adjust_duration(delta: int):
@@ -183,8 +179,9 @@ def _build_keymap(ec):
         "KEY_MINUS": lambda: _adjust_volume(-VOL_STEP),
         "KEY_MUTE": _toggle_mute,
         "KEY_M": _toggle_mute,
-        # rotation
-        "KEY_R": _cycle_rotation,
+        # screen flip (180°)
+        "KEY_R": _toggle_flip,
+        "KEY_F": _toggle_flip,
         # slide duration
         "KEY_LEFTBRACE": lambda: _adjust_duration(DURATION_STEP),   # '[' slower
         "KEY_RIGHTBRACE": lambda: _adjust_duration(-DURATION_STEP),  # ']' faster

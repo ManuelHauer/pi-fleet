@@ -1,0 +1,29 @@
+# Compose variant for the AEC setup (edge VPS terminates TLS with nginx —
+# see nginx-fleet.conf). Runs ONLY the app on the PowerEdge and publishes
+# port 8550 for the VPS to proxy to. No Caddy here.
+#
+#   docker compose -f docker-compose.nginx-edge.yml up -d
+#
+# ⚠ Restrict inbound 8550 on the PowerEdge firewall to the edge VPS's IP —
+# the app speaks plain HTTP and must not be reachable from anywhere else.
+
+services:
+  fleet-server:
+    build:
+      context: ../..
+      dockerfile: deploy/server/Dockerfile
+    restart: unless-stopped
+    environment:
+      FLEET_ADMIN_USER: ${FLEET_ADMIN_USER:-admin}
+      FLEET_ADMIN_PASS: ${FLEET_ADMIN_PASS:?set in .env}
+      FLEET_JWT_SECRET: ${FLEET_JWT_SECRET:?set in .env}
+      FLEET_DEVICE_PSK: ${FLEET_DEVICE_PSK:?set in .env}
+      FLEET_DISABLE_SHELL: ${FLEET_DISABLE_SHELL:-1}
+      FLEET_DATA_DIR: /data
+    volumes:
+      - fleet-data:/data
+    ports:
+      - "8550:8550"
+
+volumes:
+  fleet-data:

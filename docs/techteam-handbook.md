@@ -54,7 +54,7 @@ Each Pi runs a **local control panel**: open `http://<pi-ip>:8080` on any device
 
 | Control | Description |
 |--------|-------------|
-| 🔄 **Screen rotation** | 0° / 90° / 180° / 270° — applies **instantly**, playback keeps running. For screens mounted in portrait. |
+| ↕ **Screen flip** | Flip the image 180° for screens mounted upside down — applies **instantly**, playback keeps running. |
 | ⏱ **Slide duration** | Seconds per image in a slideshow (videos always play full length). Applies from the next slide. |
 | 🔊 Volume + mute | 0–200%, persists across reboots |
 | 📺 Show device info on screen | 30-second on-screen badge (device ID + IP) |
@@ -64,7 +64,7 @@ Each Pi runs a **local control panel**: open `http://<pi-ip>:8080` on any device
 | 📶 Reset Wi-Fi | Clear stored Wi-Fi → setup mode on next reboot |
 | ⟳ Reboot device | Full reboot |
 
-Rotation and slide duration can **also** be set per device from the central dashboard (Playback settings section in the device panel) — same effect, applied within one heartbeat (~30 s). The dashboard always shows what the device last reported.
+Flip and slide duration can **also** be set per device from the central dashboard (Playback settings section in the device panel) — same effect, applied within one heartbeat (~30 s). The dashboard always shows what the device last reported.
 
 ### Controlling a device with a USB keyboard  *(new in v0.4)*
 
@@ -76,7 +76,7 @@ instant the keyboard is plugged in.
 |---|---|
 | `+` / `−` (or the volume keys) | Volume up / down |
 | `m` (or the mute key) | Mute / unmute |
-| `r` | Rotate the screen (cycles 0° → 90° → 180° → 270°) |
+| `r` or `f` | Flip the image 180° (toggle, for upside-down mounted screens) |
 | `[` / `]` | Slideshow: slower / faster (image duration ± 2 s) |
 | `→` / `←` (or next/prev track keys) | Next / previous item |
 | `Space` (or play/pause key) | Pause / resume |
@@ -119,7 +119,7 @@ Playback continues through all of this — offline just means "no new content un
 **Recommended:** 1920×1080, H.264, 24–30 fps, 5–15 Mbps. 4K only on Pi 4/5 with H.265.
 
 ### Images
-`.jpg` `.png` `.webp` `.bmp` `.gif` (static) — 1920×1080 recommended (or 1080×1920 for portrait screens; alternatively upload landscape and set rotation).
+`.jpg` `.png` `.webp` `.bmp` `.gif` (static) — 1920×1080 recommended. For screens mounted upside down use the **Flip** setting; for portrait installations export the content pre-rotated (1080×1920 shown on a physically rotated screen).
 
 ### Audio
 `.mp3` `.wav` `.flac` `.ogg` `.aac`
@@ -148,8 +148,12 @@ Playback continues through all of this — offline just means "no new content un
 ## 5. Getting Artist Media Onto Devices (Server Path)
 
 1. Download the file from the PM's SharePoint folder (see `docs/media-workflow.md`).
-2. Dashboard → **Media** → drop the file(s) into the upload zone.
-3. Click **assign** on the file → tick the target devices (or tap a group name for the whole venue) → **Assign**.
+2. Dashboard → **Media** → pick or create a **folder** (e.g. one per venue or artist)
+   in the chip bar, then drop the file(s) into the upload zone — they land in the
+   open folder. *(Folders are for organizing the library; they don't change what
+   plays — assignment does.)*
+3. Click **assign** on the file → tick the target devices (or tap a group name for
+   the whole venue) → **Assign**. Use **move** to re-file media later.
 4. Devices sync within ~30 s (online ones). The device panel shows the new version.
 
 No manifest publishing step anymore — assignments generate the manifests automatically.
@@ -198,10 +202,10 @@ The file is applied once per content change (editing it re-applies). **Treat pre
 | "WAITING FOR MEDIA" idle card | Nothing assigned yet (and no SD/USB media). Assign in dashboard or use **Sync now**. |
 | Pinned 💾/🔌 but I want dashboard content | **Release** in the device panel. |
 | SD media not playing after card edit | Check files are in the TOP folder of FLEET-MEDIA, supported formats; then local UI → **Play from SD card**. |
-| Screen is portrait but video is sideways | Set rotation 90°/270° in dashboard device panel or local UI. |
+| Screen is mounted upside down | Toggle **Flip 180°** in the dashboard device panel, local UI, or press `r` on a plugged-in keyboard. |
 | Slides flip too fast/slow | Slide duration in dashboard device panel or local UI. |
 | No picture at all | mpv may have crashed → **Restart player**; else reboot; else re-seat HDMI. |
-| Which Pi is which? | **Identify** in the dashboard → 30 s badge on the venue screen. |
+| Which Pi is which? | Every Pi names itself `aef-pi-xxx` (a checksum of its device ID) — shown on the idle card, in the dashboard and as `aef-pi-xxx.local`. For a live check: **Identify** in the dashboard → 30 s badge on the venue screen, or press `i` on a plugged-in keyboard. |
 | "What's wrong with this Pi?" | SSH in and run `sudo /opt/fleet-client/diag.sh` — one-shot health dump. |
 
 ---

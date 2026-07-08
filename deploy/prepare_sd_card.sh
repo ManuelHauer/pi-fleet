@@ -12,11 +12,15 @@
 #   FLEET_LOCAL_PASSWORD   local :8080 UI password
 #   FLEET_ROOTFS_GB        rootfs size; the rest of the card becomes the
 #                          FLEET-MEDIA partition (default: 8)
+#   FLEET_HOSTNAME_PREFIX  hostname prefix; each Pi becomes <prefix>-<3-hex
+#                          checksum of its device id> (default: aef-pi)
 #   FLEET_TAILSCALE_AUTHKEY  per-SD mesh key (optional)
 #   FLEET_SETUP_FILE       path to a filled-in fleet-setup.toml to pre-prime
 #                          venue Wi-Fi / label / playback settings
-#   WIFI_SSID / WIFI_PASSWORD / DEVICE_LABEL   quick alternative to
-#                          FLEET_SETUP_FILE — generates fleet-setup.toml inline
+#   WIFI_SSID / WIFI_PASSWORD / DEVICE_LABEL / WIFI_HIDDEN=1   quick
+#                          alternative to FLEET_SETUP_FILE — generates
+#                          fleet-setup.toml inline (WIFI_HIDDEN for networks
+#                          that don't broadcast their SSID)
 set -euo pipefail
 
 BOOT_MOUNT="${1:?Usage: $0 /Volumes/bootfs}"
@@ -77,16 +81,18 @@ DEVICE_PSK="${FLEET_DEVICE_PSK:-change-me}"
 GROUP="${FLEET_GROUP:-default}"
 LOCAL_PW="${FLEET_LOCAL_PASSWORD:-aec2026}"
 ROOTFS_GB="${FLEET_ROOTFS_GB:-8}"
+HOSTNAME_PREFIX="${FLEET_HOSTNAME_PREFIX:-aef-pi}"
 cat > "$FLEET_BOOT/fleet-boot-config.json" <<EOF
 {
   "server_url": "$SERVER_URL",
   "group": "$GROUP",
   "device_psk": "$DEVICE_PSK",
   "local_password": "$LOCAL_PW",
-  "rootfs_gb": $ROOTFS_GB
+  "rootfs_gb": $ROOTFS_GB,
+  "hostname_prefix": "$HOSTNAME_PREFIX"
 }
 EOF
-echo "  ✓ Boot config written (server: $SERVER_URL, group: $GROUP, rootfs: ${ROOTFS_GB}G)"
+echo "  ✓ Boot config written (server: $SERVER_URL, group: $GROUP, rootfs: ${ROOTFS_GB}G, hostnames: ${HOSTNAME_PREFIX}-xxx)"
 if [ "$DEVICE_PSK" = "change-me" ]; then
   echo "  ⚠ FLEET_DEVICE_PSK not set — devices will use the placeholder PSK."
   echo "    Set it: FLEET_DEVICE_PSK=... ./prepare_sd_card.sh $BOOT_MOUNT"
@@ -101,6 +107,7 @@ elif [ -n "${WIFI_SSID:-}" ]; then
     echo "[wifi]"
     echo "ssid = \"${WIFI_SSID}\""
     echo "password = \"${WIFI_PASSWORD:-}\""
+    [ "${WIFI_HIDDEN:-0}" = "1" ] && echo "hidden = true"
     if [ -n "${DEVICE_LABEL:-}" ] || [ -n "${FLEET_GROUP:-}" ]; then
       echo ""
       echo "[device]"

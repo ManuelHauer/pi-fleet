@@ -49,6 +49,7 @@ DEVICE_GROUP="default"
 DEVICE_PSK="change-me"
 LOCAL_PASSWORD="aec2026"
 ROOTFS_GB="8"
+HOSTNAME_PREFIX="aef-pi"
 BOOTCFG="$FLEET_DIR/fleet-boot-config.json"
 cfgget() { python3 -c "import json,sys; print(json.load(open('$BOOTCFG')).get('$1',''))" 2>/dev/null || true; }
 if [ -f "$BOOTCFG" ]; then
@@ -57,6 +58,7 @@ if [ -f "$BOOTCFG" ]; then
   v=$(cfgget device_psk);     [ -n "$v" ] && DEVICE_PSK="$v"
   v=$(cfgget local_password); [ -n "$v" ] && LOCAL_PASSWORD="$v"
   v=$(cfgget rootfs_gb);      [ -n "$v" ] && ROOTFS_GB="$v"
+  v=$(cfgget hostname_prefix); [ -n "$v" ] && HOSTNAME_PREFIX="$v"
 fi
 echo "Server: $FLEET_SERVER   Group: $DEVICE_GROUP   rootfs: ${ROOTFS_GB}G"
 
@@ -155,6 +157,7 @@ cat > /etc/fleet-client/config.json << EOF
     "poll_interval": 30,
     "jitter_max": 5,
     "media_base": "/opt/fleet-media",
+    "hostname_prefix": "$HOSTNAME_PREFIX",
     "label": ""
 }
 EOF
@@ -173,6 +176,7 @@ cp /opt/fleet-client/fleet-player.service        /etc/systemd/system/
 cp /opt/fleet-client/fleet-client.service        /etc/systemd/system/
 cp /opt/fleet-client/fleet-local-control.service /etc/systemd/system/
 cp /opt/fleet-client/fleet-keyboard.service      /etc/systemd/system/
+cp /opt/fleet-client/fleet-hostname.service      /etc/systemd/system/
 cp /opt/fleet-client/onboarding/fleet-onboard.service /etc/systemd/system/
 
 systemctl daemon-reload
@@ -180,7 +184,11 @@ systemctl enable fleet-onboard.service \
                  fleet-player.service \
                  fleet-client.service \
                  fleet-local-control.service \
-                 fleet-keyboard.service
+                 fleet-keyboard.service \
+                 fleet-hostname.service
+
+# Set the fleet hostname right away (also runs every boot via the unit)
+python3 /opt/fleet-client/set_hostname.py || true
 
 # Free tty1 for mpv DRM (no autologin needed; mpv talks to KMS directly)
 systemctl disable getty@tty1.service 2>/dev/null || true
