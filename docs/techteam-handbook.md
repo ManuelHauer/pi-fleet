@@ -62,6 +62,20 @@ Put a `wifi.json` on a USB stick, plug in, reboot:
 { "ssid": "VenueWiFiName", "password": "VenuePassword" }
 ```
 
+### Fallback: shared ad-hoc hotspot
+If the venue Wi-Fi is unreachable, any technician can turn on a phone hotspot:
+
+| Setting | Value |
+|---|---|
+| SSID | `aef26` |
+| Password | `aeffallback2026` |
+| Hidden | off or on (the Pi probes for hidden SSIDs too) |
+
+A pre-flashed fleet card that has this fallback baked in — or any clone stamped
+with it — will auto-connect to `aef26` when it sees it, without needing the
+phone/captive-portal step. Keep this credential for the tech team only; do not
+post it publicly.
+
 ---
 
 ## 2. Controlling a Device (Orientation, Slides, Volume)

@@ -55,6 +55,9 @@ if [ -b "$P3" ]; then
     mkfs.exfat -L "$LABEL" "$P3"
   fi
   ensure_fstab_and_mount
+  # If the partition was resized but the filesystem never expanded (e.g. image
+  # already had p3), grow it now. resize2fs is idempotent if already full.
+  resize2fs "$P2" >/dev/null 2>&1 || true
   exit 0
 fi
 
@@ -119,8 +122,15 @@ if [ ! -b "$P3" ]; then
   exit 1
 fi
 
-resize2fs "$P2"
-log "rootfs resized"
+if resize2fs "$P2"; then
+  log "rootfs resized"
+else
+  log "WARNING: rootfs resize failed — partition table may need a reboot to be reloaded"
+  log "Rebooting and will retry on next boot"
+  sync
+  reboot
+  exit 0
+fi
 
 # exfatprogs may not be installed yet (this script runs BEFORE the main apt
 # block, so growing rootfs frees the space apt needs). Now that rootfs has

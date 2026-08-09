@@ -135,7 +135,9 @@ def scan_networks() -> list:
 
 def has_venue_profile() -> bool:
     rc, out = _nmcli(["-t", "-f", "NAME", "con", "show"], timeout=15)
-    return rc == 0 and VENUE_CON in out.splitlines()
+    if rc != 0:
+        return False
+    return any(n.startswith(VENUE_CON) for n in out.splitlines())
 
 
 def _wait_for_ip(timeout_sec: int) -> bool:
@@ -162,31 +164,48 @@ def wait_online(timeout_sec: int = 45) -> str:
     return get_ip() if _wait_for_ip(timeout_sec) else ""
 
 
-def write_venue_profile(ssid: str, password: str, hidden: bool = False) -> bool:
-    """Create/replace the venue Wi-Fi profile (autoconnect on every boot)."""
-    _nmcli(["con", "delete", VENUE_CON], timeout=15)  # ignore result
+def clear_venue_profiles():
+    """Delete every fleet-managed venue profile (fleet-venue*)."""
+    rc, out = _nmcli(["-t", "-f", "NAME", "con", "show"], timeout=15)
+    if rc != 0:
+        return
+    for name in out.splitlines():
+        if name.startswith(VENUE_CON):
+            _nmcli(["con", "delete", name], timeout=15)
+    log.info("Cleared fleet venue profiles")
+
+
+def write_profile(name: str, ssid: str, password: str, hidden: bool = False,
+                  priority: int = 10) -> bool:
+    """Create/replace a Wi-Fi profile with autoconnect and priority."""
     args = ["con", "add", "type", "wifi", "ifname", WIFI_IFACE,
-            "con-name", VENUE_CON, "ssid", ssid,
+            "con-name", name, "ssid", ssid,
             "connection.autoconnect", "yes",
-            "connection.autoconnect-priority", "10"]
+            "connection.autoconnect-priority", str(priority)]
     if password:
         args += ["wifi-sec.key-mgmt", "wpa-psk", "wifi-sec.psk", password]
     if hidden:
         args += ["802-11-wireless.hidden", "yes"]
     rc, out = _nmcli(args, timeout=20)
     if rc != 0:
-        log.error(f"Venue profile create failed: {out}")
+        log.error(f"Profile create failed ({name}): {out}")
         return False
-    log.info(f"Venue profile written: SSID={ssid} hidden={hidden}")
+    log.info(f"Profile written: {name} SSID={ssid} priority={priority} hidden={hidden}")
     return True
 
 
-def connect_venue(timeout_sec: int = 45) -> bool:
-    """Bring the venue profile up and wait for an IP."""
-    rc, out = _nmcli(["con", "up", VENUE_CON, "ifname", WIFI_IFACE],
+def write_venue_profile(ssid: str, password: str, hidden: bool = False) -> bool:
+    """Create/replace the single fleet-venue profile (backwards compatibility)."""
+    clear_venue_profiles()
+    return write_profile(VENUE_CON, ssid, password, hidden=hidden, priority=10)
+
+
+def connect_profile(name: str, timeout_sec: int = 45) -> bool:
+    """Bring a specific profile up and wait for an IP."""
+    rc, out = _nmcli(["con", "up", name, "ifname", WIFI_IFACE],
                      timeout=timeout_sec)
     if rc != 0:
-        log.warning(f"con up {VENUE_CON} failed: {out}")
+        log.warning(f"con up {name} failed: {out}")
         return False
     ok = _wait_for_ip(timeout_sec=20)
     if ok:
@@ -194,9 +213,14 @@ def connect_venue(timeout_sec: int = 45) -> bool:
     return ok
 
 
+def connect_venue(timeout_sec: int = 45) -> bool:
+    """Bring the fleet-venue profile up and wait for an IP."""
+    return connect_profile(VENUE_CON, timeout_sec=timeout_sec)
+
+
 def forget_venue_wifi():
-    _nmcli(["con", "delete", VENUE_CON], timeout=15)
-    log.info("Venue Wi-Fi profile removed")
+    clear_venue_profiles()
+    log.info("Venue Wi-Fi profiles removed")
 
 
 # ── Onboarding hotspot ──

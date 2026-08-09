@@ -146,19 +146,29 @@ def main():
     if cfg and is_new:
         log.info(f"Applying pre-primed setup from {cfg_path}")
         setup_config.apply_non_wifi(cfg)
-        wifi = setup_config.wifi_block(cfg)
-        if wifi:
-            if wifi.get("country"):
-                nm_manager.set_wifi_country(wifi["country"])
-            hdmi_status.show_connecting(wifi["ssid"])
-            if nm_manager.write_venue_profile(wifi["ssid"], wifi["password"],
-                                              hidden=wifi["hidden"]):
-                if nm_manager.connect_venue(timeout_sec=60):
-                    setup_config.mark_applied(cfg_path)
-                    finish(device_id, via="fleet-setup.toml")
-                    return
-                log.warning("Pre-primed Wi-Fi failed to connect — "
-                            "falling through to portal setup")
+        wifi_list = setup_config.wifi_blocks(cfg)
+        if wifi_list:
+            if wifi_list[0].get("country"):
+                nm_manager.set_wifi_country(wifi_list[0]["country"])
+            hdmi_status.show_connecting(wifi_list[0]["ssid"])
+            nm_manager.clear_venue_profiles()
+            for i, wifi in enumerate(wifi_list):
+                name = f"{nm_manager.VENUE_CON}-{i}" if i else nm_manager.VENUE_CON
+                priority = 10 - i
+                nm_manager.write_profile(name, wifi["ssid"], wifi["password"],
+                                         hidden=wifi["hidden"], priority=priority)
+            connected = False
+            for i, wifi in enumerate(wifi_list):
+                name = f"{nm_manager.VENUE_CON}-{i}" if i else nm_manager.VENUE_CON
+                if nm_manager.connect_profile(name, timeout_sec=45):
+                    connected = True
+                    break
+            if connected:
+                setup_config.mark_applied(cfg_path)
+                finish(device_id, via="fleet-setup.toml")
+                return
+            log.warning("Pre-primed Wi-Fi failed to connect — "
+                        "falling through to portal setup")
         setup_config.mark_applied(cfg_path)  # non-wifi parts are applied either way
 
     # 2a. Already online? Wi-Fi may be configured OUTSIDE our system (Imager

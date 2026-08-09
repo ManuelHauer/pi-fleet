@@ -20,6 +20,21 @@ set -euo pipefail
 exec > >(tee -a /var/log/fleet-firstrun.log) 2>&1
 echo "$(date): Fleet golden image first-run starting…"
 
+# ── Root-cause guard: refuse to layer fleet on top of legacy media-loop images ──
+# The only supported starting point is a freshly-flashed Raspberry Pi OS Lite
+# (arm64) card. If someone runs this on a reused Debian/VLC looper image, the
+# old autostart hooks will fight the fleet stack and create the exact VLC-shell
+# bug we have seen. Catch it early instead of patching symptoms later.
+if command -v cvlc >/dev/null 2>&1 || command -v vlc >/dev/null 2>&1; then
+  if [ -f /home/pi/.bash_profile ] || [ -f /home/pi/loopvideos.sh ] || \
+     [ -d /etc/systemd/system/getty@tty1.service.d ]; then
+    echo "ERROR: This SD card contains a legacy VLC media-looper setup."
+    echo "       Do NOT layer the fleet stack on top of an old exhibition image."
+    echo "       Flash a fresh Raspberry Pi OS Lite (arm64) card and try again."
+    exit 1
+  fi
+fi
+
 DONE_MARKER="/etc/fleet-client/.firstrun-done"
 if [ -f "$DONE_MARKER" ]; then
   echo "first-run already completed — nothing to do"
@@ -78,6 +93,12 @@ if [ "$NET_OK" != "1" ]; then
 fi
 
 export DEBIAN_FRONTEND=noninteractive
+
+# Some Trixie mirrors return 404 for i18n Translation files during apt update,
+# which does not stop the install but produces noisy warnings. Disable language
+# index downloads — this is a headless appliance, translations are not needed.
+mkdir -p /etc/apt/apt.conf.d
+echo 'Acquire::Languages "none";' > /etc/apt/apt.conf.d/99disable-languages
 
 # ── FLEET-MEDIA partition FIRST — this GROWS the root filesystem (auto-expand
 # was disabled at flash time so we could carve out the media partition). The
@@ -171,6 +192,13 @@ chmod 600 /etc/fleet-client/config.json
 chown -R pi:pi /opt/fleet-media /opt/fleet-client 2>/dev/null || true
 chown pi:pi /etc/fleet-client 2>/dev/null || true
 
+# The fleet daemons run as User=pi but need to reboot the device from command
+# queue / local UI without an interactive password prompt.
+cat > /etc/sudoers.d/fleet-pi <<'EOF'
+pi ALL=(ALL) NOPASSWD: /sbin/reboot, /sbin/shutdown, /usr/sbin/reboot, /usr/sbin/shutdown
+EOF
+chmod 440 /etc/sudoers.d/fleet-pi
+
 # ── systemd units ──
 cp /opt/fleet-client/fleet-player.service        /etc/systemd/system/
 cp /opt/fleet-client/fleet-client.service        /etc/systemd/system/
@@ -187,8 +215,57 @@ systemctl enable fleet-onboard.service \
                  fleet-keyboard.service \
                  fleet-hostname.service
 
+# Ensure SSH host keys exist on every boot. They are removed during
+# golden-image generalization; some Bookworm/Trixie paths fail to recreate
+# them automatically, which leaves sshd dead on first boot of a clone.
+# The primary fix is fleet-regenerate-hostkeys.service (installed below);
+# this drop-in is a fallback for images that were already generalized
+# before that service existed.
+mkdir -p /etc/systemd/system/ssh.service.d
+cat > /etc/systemd/system/ssh.service.d/10-fleet-keys.conf <<'EOF'
+[Service]
+ExecStartPre=-/usr/bin/ssh-keygen -A
+EOF
+systemctl daemon-reload
+systemctl enable ssh 2>/dev/null || true
+ssh-keygen -A || true
+
+# Ensure cloned images regenerate SSH host keys even when first-run is skipped
+# (clones inherit .firstrun-done, so this installer never runs on them — the
+# enabled unit below ships inside the golden image and self-activates on a
+# clone's first boot because generalization removed the host keys).
+FLEET_REGEN_KEYS_UNIT=/etc/systemd/system/fleet-regenerate-hostkeys.service
+cp "$FLEET_DIR/deploy/fleet-regenerate-hostkeys.service" "$FLEET_REGEN_KEYS_UNIT"
+chmod 644 "$FLEET_REGEN_KEYS_UNIT"
+systemctl daemon-reload
+systemctl enable fleet-regenerate-hostkeys.service
+
 # Set the fleet hostname right away (also runs every boot via the unit)
 python3 /opt/fleet-client/set_hostname.py || true
+
+# ── Boot-firmware guard (Trixie raspi-firmware bug, GitHub firmware#2034) ──
+# raspi-firmware 1:1.20260521-2 pruned cross-board boot files from
+# /boot/firmware (kernel8.img, start4.elf, ...) without syncing the FAT,
+# leaving images unbootable. Verify the full set is still here; if anything
+# is missing, reinstall the (fixed) package and hard-sync the FAT.
+BOOTFW_MISSING=""
+for f in kernel8.img kernel_2712.img start.elf start4.elf start4cd.elf \
+         initramfs8 initramfs_2712; do
+  [ -f "/boot/firmware/$f" ] || BOOTFW_MISSING="$BOOTFW_MISSING $f"
+done
+if [ -n "$BOOTFW_MISSING" ]; then
+  echo "WARNING: /boot/firmware missing:$BOOTFW_MISSING — reinstalling raspi-firmware"
+  apt-get install --reinstall -y raspi-firmware || true
+  sync -f /boot/firmware 2>/dev/null || true
+  BOOTFW_STILL=""
+  for f in $BOOTFW_MISSING; do
+    [ -f "/boot/firmware/$f" ] || BOOTFW_STILL="$BOOTFW_STILL $f"
+  done
+  if [ -n "$BOOTFW_STILL" ]; then
+    echo "ERROR: boot firmware still incomplete:$BOOTFW_STILL"
+    echo "       image would be unbootable on some Pi models — investigate before capture"
+  fi
+fi
 
 # Free tty1 for mpv DRM (no autologin needed; mpv talks to KMS directly)
 systemctl disable getty@tty1.service 2>/dev/null || true

@@ -17,13 +17,13 @@ SD card (designed in from day one), so cloned cards never collide.
    Pi 3/4/5 alike.
 2. Capture it:
    ```
-   SSH_OPTS="-i ~/.ssh/your_key -o IdentitiesOnly=yes" \
-     ./capture_golden.sh <master-ip> <diskN>
-   ```
-   This SSHes in, **generalizes** the master (`generalize.sh`: strips
-   device-id, machine-id, SSH host keys, onboarding markers and the master's
-   Wi-Fi — but KEEPS the installed packages), powers it off, then you move the
-   card to the Mac and it images it to `aef-golden-<date>.img.gz`.
+    SSH_OPTS="-i ~/.ssh/your_key -o IdentitiesOnly=yes" \
+      ./capture_golden.sh <master-ip> <diskN>
+    ```
+    This SSHes in, **generalizes** the master (`generalize.sh`: strips
+    device-id, machine-id, SSH host keys, onboarding markers and the master's
+    Wi-Fi — but KEEPS the installed packages), powers it off, then you move the
+    card to the Mac and it images it to `aef-golden-<date>.img.gz`.
 
 ## Per card: clone + stamp venue Wi-Fi
 

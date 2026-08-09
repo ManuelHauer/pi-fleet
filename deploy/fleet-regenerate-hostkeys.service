@@ -1,0 +1,17 @@
+[Unit]
+Description=Regenerate SSH host keys and machine-id on first boot
+After=systemd-remount-fs.service time-set.target
+Before=ssh.service ssh.socket
+ConditionPathExistsGlob=!/etc/ssh/ssh_host_*key
+
+[Service]
+Type=oneshot
+ExecStartPre=-/bin/rm -f /etc/ssh/ssh_host_* /var/lib/dbus/machine-id /etc/machine-id
+ExecStart=-/usr/bin/systemd-machine-id-setup
+ExecStart=-/usr/bin/ssh-keygen -A
+RemainAfterExit=yes
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

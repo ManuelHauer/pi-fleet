@@ -13,6 +13,7 @@
 #
 # Per-card env (all optional except the image + disk):
 #   WIFI_SSID / WIFI_PASSWORD / WIFI_HIDDEN=1 / WIFI_COUNTRY   venue Wi-Fi
+#   WIFI_BACKUP_SSID / WIFI_BACKUP_PASSWORD / WIFI_BACKUP_HIDDEN=1   fallback Wi-Fi
 #   DEVICE_LABEL / FLEET_GROUP / DEVICE_LOCATION               dashboard fields
 #   FLEET_SETUP_FILE   use a ready-made fleet-setup.toml instead of the above
 set -euo pipefail
@@ -32,10 +33,20 @@ read -r -p "Type the disk id to confirm (e.g. $DISK): " confirm
 echo "== Writing image -> /dev/$DISK =="
 /usr/sbin/diskutil unmountDisk "/dev/$DISK"
 RDISK="/dev/r${DISK}"
-case "$IMG" in
-  *.gz) gzip -dc "$IMG" | sudo dd of="$RDISK" bs=8m 2>/dev/null ;;
-  *)    sudo dd if="$IMG" of="$RDISK" bs=8m 2>/dev/null ;;
-esac
+
+echo "== Writing sparse image -> /dev/$DISK =="
+# gzip -dc "$IMG" | sudo dd of="$RDISK" bs=8m 2>/dev/null
+# Use sparse writes: the golden image has zeroed empty space and will write
+# many times faster than a literal 29 GB copy.
+if command -v bmaptool >/dev/null 2>&1 && [ -f "${IMG%.gz}.bmap" ]; then
+  echo "  using bmaptool with ${IMG%.gz}.bmap"
+  bmaptool copy --bmap "${IMG%.gz}.bmap" "$IMG" "$RDISK"
+else
+  case "$IMG" in
+    *.gz) gzip -dc "$IMG" | sudo dd of="$RDISK" bs=8m conv=sparse,fsync 2>/dev/null ;;
+    *)    sudo dd if="$IMG" of="$RDISK" bs=8m conv=sparse,fsync 2>/dev/null ;;
+  esac
+fi
 sync
 echo "  ok image written"
 
@@ -51,18 +62,25 @@ if [ -n "${FLEET_SETUP_FILE:-}" ]; then
   echo "  ok fleet-setup.toml from $FLEET_SETUP_FILE"
 elif [ -n "${WIFI_SSID:-}" ]; then
   {
-    echo "[wifi]"
+    echo "[[wifi]]"
     echo "ssid = \"${WIFI_SSID}\""
     echo "password = \"${WIFI_PASSWORD:-}\""
     [ "${WIFI_HIDDEN:-0}" = "1" ] && echo "hidden = true"
     [ -n "${WIFI_COUNTRY:-}" ] && echo "country = \"${WIFI_COUNTRY}\""
+    if [ -n "${WIFI_BACKUP_SSID:-}" ]; then
+      echo ""
+      echo "[[wifi]]"
+      echo "ssid = \"${WIFI_BACKUP_SSID}\""
+      echo "password = \"${WIFI_BACKUP_PASSWORD:-}\""
+      [ "${WIFI_BACKUP_HIDDEN:-0}" = "1" ] && echo "hidden = true"
+    fi
     echo ""
     echo "[device]"
     [ -n "${DEVICE_LABEL:-}" ] && echo "label = \"${DEVICE_LABEL}\""
     [ -n "${FLEET_GROUP:-}" ] && echo "group = \"${FLEET_GROUP}\""
     [ -n "${DEVICE_LOCATION:-}" ] && echo "location = \"${DEVICE_LOCATION}\""
   } > "$BOOT/fleet-setup.toml"
-  echo "  ok fleet-setup.toml written (SSID: $WIFI_SSID, label: ${DEVICE_LABEL:-none})"
+  echo "  ok fleet-setup.toml written (primary: $WIFI_SSID, backup: ${WIFI_BACKUP_SSID:-none}, label: ${DEVICE_LABEL:-none})"
 else
   echo "  ? No Wi-Fi stamped ? clone will open the AEC-PI-XXXX setup hotspot at the venue."
   echo "    (Re-run with WIFI_SSID=... to bake venue Wi-Fi in.)"
