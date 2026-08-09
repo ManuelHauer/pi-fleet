@@ -39,3 +39,6 @@ client/media/
 client/releases/
 *.log
 *.log.*
+deploy/golden/aef-golden-20260809-015712.img.gz
+.sshmcp.yaml
+docs/device-provisioning.md

@@ -19,11 +19,16 @@ later local/dashboard changes). Edit the file → new hash → applied again.
 
 Example (see deploy/fleet-setup.example.toml for the full reference):
 
-    [wifi]
+    [[wifi]]
     ssid = "VenueNetz"
     password = "secret"
     # hidden = false
     # country = "AT"
+
+    [[wifi]]
+    ssid = "BackupHotspot"
+    password = "backup-secret"
+    hidden = true
 
     [device]
     label = "OK Linz Mediendeck — left screen"
@@ -148,14 +153,39 @@ def apply_non_wifi(cfg: dict):
 
 
 def wifi_block(cfg: dict) -> dict:
-    """Normalized [wifi] block or {}."""
-    wifi = cfg.get("wifi", {}) or {}
-    ssid = str(wifi.get("ssid", "")).strip()
-    if not ssid:
-        return {}
-    return {
-        "ssid": ssid,
-        "password": str(wifi.get("password", "")),
-        "hidden": bool(wifi.get("hidden", False)),
-        "country": str(wifi.get("country", "")).strip().upper() or None,
-    }
+    """Normalized first [wifi] block or {} (backwards-compatibility)."""
+    blocks = wifi_blocks(cfg)
+    return blocks[0] if blocks else {}
+
+
+def wifi_blocks(cfg: dict) -> list[dict]:
+    """Normalized list of Wi-Fi blocks from [[wifi]] array or single [wifi].
+
+    Supports both forms in fleet-setup.toml:
+
+        [[wifi]]
+        ssid = "VenueWiFi"
+        password = "secret"
+
+        [[wifi]]
+        ssid = "BackupHotspot"
+        password = "backup-secret"
+        hidden = true
+    """
+    raw = cfg.get("wifi") or []
+    if isinstance(raw, dict):
+        raw = [raw]
+    out = []
+    for wifi in raw:
+        if not isinstance(wifi, dict):
+            continue
+        ssid = str(wifi.get("ssid", "")).strip()
+        if not ssid:
+            continue
+        out.append({
+            "ssid": ssid,
+            "password": str(wifi.get("password", "")),
+            "hidden": bool(wifi.get("hidden", False)),
+            "country": str(wifi.get("country", "")).strip().upper() or None,
+        })
+    return out

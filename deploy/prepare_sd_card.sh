@@ -24,6 +24,10 @@
 #                          set, the card ALSO joins that network at the OS level
 #                          on first boot, so the installer is online over Wi-Fi
 #                          with NO Ethernet needed.
+#   WIFI_BACKUP_SSID / WIFI_BACKUP_PASSWORD / WIFI_BACKUP_HIDDEN=1
+#                          fallback Wi-Fi to write into fleet-setup.toml; useful
+#                          for an ad-hoc hotspot a tech can enable if the venue
+#                          network is unreachable.
 #   WIFI_COUNTRY           Wi-Fi regulatory domain for the OS join (default: AT)
 #   FLEET_PI_PASSWORD      password for the 'pi' user. Needed when the image
 #                          was flashed WITHOUT Raspberry Pi Imager's user
@@ -101,6 +105,9 @@ echo "  ✓ client/ tree copied"
 
 cp "$SCRIPT_DIR/99-fleet-usb.rules"        "$FLEET_BOOT/deploy/"
 cp "$SCRIPT_DIR/setup_media_partition.sh"  "$FLEET_BOOT/deploy/"
+# SSH host-key regeneration unit — installed+enabled by golden_image_firstrun.sh
+# so clones (which skip the installer) still self-heal sshd on first boot.
+cp "$SCRIPT_DIR/fleet-regenerate-hostkeys.service" "$FLEET_BOOT/deploy/"
 cp "$SCRIPT_DIR/golden_image_firstrun.sh"  "$FLEET_BOOT/"
 cp "$SCRIPT_DIR/pi_firstboot_fleet.sh"     "$FLEET_BOOT/"
 chmod +x "$FLEET_BOOT/golden_image_firstrun.sh" "$FLEET_BOOT/pi_firstboot_fleet.sh" \
@@ -136,10 +143,17 @@ if [ -n "${FLEET_SETUP_FILE:-}" ]; then
   echo "  ✓ fleet-setup.toml copied from $FLEET_SETUP_FILE"
 elif [ -n "${WIFI_SSID:-}" ]; then
   {
-    echo "[wifi]"
+    echo "[[wifi]]"
     echo "ssid = \"${WIFI_SSID}\""
     echo "password = \"${WIFI_PASSWORD:-}\""
     [ "${WIFI_HIDDEN:-0}" = "1" ] && echo "hidden = true"
+    if [ -n "${WIFI_BACKUP_SSID:-}" ]; then
+      echo ""
+      echo "[[wifi]]"
+      echo "ssid = \"${WIFI_BACKUP_SSID}\""
+      echo "password = \"${WIFI_BACKUP_PASSWORD:-}\""
+      [ "${WIFI_BACKUP_HIDDEN:-0}" = "1" ] && echo "hidden = true"
+    fi
     if [ -n "${DEVICE_LABEL:-}" ] || [ -n "${FLEET_GROUP:-}" ]; then
       echo ""
       echo "[device]"
@@ -147,7 +161,8 @@ elif [ -n "${WIFI_SSID:-}" ]; then
       echo "group = \"${GROUP}\""
     fi
   } > "$BOOT_MOUNT/fleet-setup.toml"
-  echo "  ✓ fleet-setup.toml generated (SSID: $WIFI_SSID) — zero-touch onboarding"
+  echo "  ✓ fleet-setup.toml generated (primary: $WIFI_SSID) — zero-touch onboarding"
+  [ -n "${WIFI_BACKUP_SSID:-}" ] && echo "     backup Wi-Fi: $WIFI_BACKUP_SSID"
 else
   echo "  ℹ No Wi-Fi preseed (set WIFI_SSID/WIFI_PASSWORD or FLEET_SETUP_FILE)."
   echo "    Device will open the AEC-PI-XXXX setup hotspot at the venue."

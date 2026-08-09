@@ -13,13 +13,20 @@
 # (same as Raspberry Pi Imager's preconfiguration) — treat prepared cards
 # like keys to the venue network. NEVER commit a filled-in copy to git.
 
-[wifi]
-# Venue network the Pi should join — skips the phone/captive-portal step.
+# Venue network(s) the Pi should join — skips the phone/captive-portal step.
+# You can list MULTIPLE [[wifi]] blocks (strongest/most-preferred first); the Pi
+# will auto-connect to the first one it can see. Handy for a backup phone hotspot.
+[[wifi]]
 ssid = "VenueWiFi-Name"
 password = "the-venue-password"
 hidden = false          # set true for networks that do NOT broadcast their
                         # SSID (the Pi then probes for it actively)
 # country = "AT"        # Wi-Fi regulatory domain (default: image setting)
+
+[[wifi]]
+ssid = "aef26"
+password = "aeffallback2026"
+# hidden = false
 
 [device]
 # Shown in the dashboard. Use something a technician can find in the venue.
